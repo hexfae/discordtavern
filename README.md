@@ -10,6 +10,10 @@ A [SillyTavern](https://github.com/SillyTavern/SillyTavern)-inspired Discord bot
 - Text streaming (1s intervals, due to Discord's rate limits)
 - Multi-user aware
 
+See the video below for a feature showcase (note: video is at 200% speed).
+
+https://github.com/hexfae/discordtavern/assets/144726229/69bff969-e327-4fe5-b8a7-1138eb6de637
+
 # Running
 
 On startup, `config.ron` will be created; set your `bot_id`, `bot_token`, and `openai_key` here. 
