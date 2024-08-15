@@ -1,9 +1,5 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("gubben hittades inte!")]
-    CharacterNotFound,
-    #[error("konversationen hittades inte!")]
-    HistoryNotFound,
     #[error(transparent)]
     Discord(#[from] poise::serenity_prelude::Error),
     #[error(transparent)]

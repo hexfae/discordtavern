@@ -3,8 +3,9 @@ use crate::prelude::*;
 use super::character::Character;
 use async_openai::types::{
     ChatCompletionRequestAssistantMessage, ChatCompletionRequestMessage,
-    ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent,
-    CreateChatCompletionResponse, Role,
+    ChatCompletionRequestMessageContentPart, ChatCompletionRequestMessageContentPartImage,
+    ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessage,
+    ChatCompletionRequestUserMessageContent, CreateChatCompletionResponse, ImageUrl, Role,
 };
 use derive_more::{Display, Into};
 use once_cell::sync::Lazy;
@@ -29,6 +30,8 @@ pub struct SuperMessage {
     pub author: String,
     #[into]
     pub message: String,
+    #[serde(default)]
+    pub image: Option<String>,
     pub role: Role,
     #[serde(default)]
     pub edited: bool,
@@ -55,6 +58,7 @@ impl SuperMessage {
         Self {
             author: author.into(),
             message: message.into(),
+            image: None,
             role: Role::Assistant,
             edited: false,
         }
@@ -64,6 +68,7 @@ impl SuperMessage {
         Self {
             author: author.into(),
             message: message.into(),
+            image: None,
             role: Role::User,
             edited: false,
         }
@@ -73,6 +78,7 @@ impl SuperMessage {
         Self {
             author: String::from("System"),
             message: message.into(),
+            image: None,
             role: Role::System,
             edited: false,
         }
@@ -84,10 +90,15 @@ impl From<serenity::Message> for SuperMessage {
         let author = substitute_name(message.author.name);
         let is_bot = message.author.id == CONFIG.read().bot_id();
         let role = if is_bot { Role::Assistant } else { Role::User };
-        let message_content = message.content.into();
+        let image = message
+            .attachments
+            .first()
+            .map(|attachment| attachment.url.to_string());
+        let message = message.content.into();
         Self {
             author,
-            message: message_content,
+            message,
+            image,
             role,
             edited: false,
         }
@@ -110,24 +121,40 @@ impl From<SuperMessage> for ChatCompletionRequestMessage {
             .replace('å', "ao")
             .replace('ä', "ae")
             .replace('ö', "oe");
-        let message = super_message.message;
+        let message_content = super_message.message;
 
-        match role {
-            Role::Assistant => Self::Assistant(ChatCompletionRequestAssistantMessage {
-                content: Some(message),
+        if role == Role::Assistant {
+            Self::Assistant(ChatCompletionRequestAssistantMessage {
+                content: Some(message_content),
                 name: Some(author),
                 ..Default::default()
-            }),
-            _ => Self::User(ChatCompletionRequestUserMessage {
-                content: ChatCompletionRequestUserMessageContent::Text(message),
+            })
+        } else {
+            let content = if let Some(url) = super_message.image {
+                ChatCompletionRequestUserMessageContent::Array(vec![
+                    ChatCompletionRequestMessageContentPart::Text(
+                        ChatCompletionRequestMessageContentPartText::from(message_content),
+                    ),
+                    ChatCompletionRequestMessageContentPart::ImageUrl(
+                        ChatCompletionRequestMessageContentPartImage {
+                            image_url: ImageUrl { url, detail: None },
+                        },
+                    ),
+                ])
+            } else {
+                ChatCompletionRequestUserMessageContent::Text(message_content)
+            };
+
+            Self::User(ChatCompletionRequestUserMessage {
                 name: Some(author),
-            }),
+                content,
+            })
         }
     }
 }
 
 impl History {
-    pub fn new(
+    pub const fn new(
         message_id: MessageId,
         character: Character,
         message_history: Vec<SuperMessage>,

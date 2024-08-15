@@ -1,11 +1,16 @@
+mod character;
+mod commands;
+mod config;
+mod discord;
 mod error;
+mod event_handler;
 mod prelude;
-mod utils;
+mod super_message;
 
 #[tokio::main]
 async fn main() -> prelude::Result<()> {
     start_logging()?;
-    utils::discord::Data::start_bot().await
+    discord::Data::start_bot().await
 }
 
 fn start_logging() -> prelude::Result<()> {

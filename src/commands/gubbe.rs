@@ -1,6 +1,6 @@
 use crate::{
+    character::{Avatar, Emoji},
     prelude::*,
-    utils::character::{Avatar, Emoji},
 };
 
 #[poise::command(
@@ -43,7 +43,10 @@ async fn ändra(
 ) -> Result<()> {
     ctx.defer_ephemeral().await?;
     let data = ctx.data();
-    let mut character = data.character(&namn)?;
+    let Some(mut character) = data.character(&namn) else {
+        ctx.say("ingen gubbe hittades!").await?;
+        return Ok(());
+    };
     if let Some(greeting) = hälsning {
         character.greeting = SuperMessage::new_assistant(namn.clone(), greeting);
     };
@@ -70,8 +73,11 @@ async fn döda(
     namn: String,
 ) -> Result<()> {
     ctx.defer_ephemeral().await?;
-    let character = ctx.data().character(&namn)?;
-    ctx.data().remove_character(&namn)?;
+    let Some(character) = ctx.data().character(&namn) else {
+        ctx.say("ingen gubbe hittades!").await?;
+        return Ok(());
+    };
+    ctx.data().remove_character(&namn);
     ctx.say(format!("Hurra! Gubben {character} dödades."))
         .await?;
     Ok(())

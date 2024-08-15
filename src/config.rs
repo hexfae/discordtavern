@@ -57,7 +57,8 @@ impl Config {
 
     fn create() -> RwLock<Self> {
         let config = Self::new();
-        if let Err(why) = config.read().save() {
+        let try_save = config.read().save();
+        if let Err(why) = try_save {
             warn!("could not save config! {why}");
         };
         config
@@ -118,7 +119,7 @@ impl Default for OpenAiUrl {
 
 impl Default for OpenAiModel {
     fn default() -> Self {
-        Self("gpt-3.5-turbo-1106".into())
+        Self("gpt-4o-mini".into())
     }
 }
 

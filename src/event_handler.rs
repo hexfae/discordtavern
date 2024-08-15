@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::discord::Data;
 use crate::prelude::*;
-use crate::utils::discord::Data;
 use async_openai::error::OpenAIError;
 use async_openai::types::CreateChatCompletionRequestArgs;
 use futures::StreamExt;
@@ -94,9 +94,9 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                                     &http,
                                     EditMessage::default().embed(
                                         serenity::CreateEmbed::new()
-                                            .title(&history.character.to_string())
+                                            .title(history.character.to_string())
                                             .description(output.clone())
-                                            .thumbnail(&history.character.avatar.to_string())
+                                            .thumbnail(history.character.avatar.to_string())
                                             .footer(serenity::CreateEmbedFooter::new(footer)),
                                     ),
                                 )
@@ -118,9 +118,9 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                             &http,
                             EditMessage::default().embed(
                                 serenity::CreateEmbed::new()
-                                    .title(&history.character.to_string())
+                                    .title(history.character.to_string())
                                     .description(output.clone())
-                                    .thumbnail(&history.character.avatar.to_string())
+                                    .thumbnail(history.character.avatar.to_string())
                                     .footer(serenity::CreateEmbedFooter::new("1/1")),
                             ),
                         )
@@ -264,7 +264,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
             interaction.defer(&http).await?;
             current_page = current_page
                 .checked_sub(1)
-                .unwrap_or(history.clone().choices.len() - 1);
+                .unwrap_or_else(|| &history.choices.len() - 1);
             history.current_page = current_page;
 
             let name = history.character.to_string();
@@ -346,10 +346,10 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                                                 &http,
                                                 EditMessage::default().embed(
                                                     serenity::CreateEmbed::new()
-                                                        .title(&history.character.to_string())
+                                                        .title(history.character.to_string())
                                                         .description(output.clone())
                                                         .thumbnail(
-                                                            &history.character.avatar.to_string(),
+                                                            history.character.avatar.to_string(),
                                                         )
                                                         .footer(serenity::CreateEmbedFooter::new(
                                                             footer.clone(),
@@ -373,9 +373,9 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                                         &http,
                                         EditMessage::default().embed(
                                             serenity::CreateEmbed::new()
-                                                .title(&history.character.to_string())
+                                                .title(history.character.to_string())
                                                 .description(output.clone())
-                                                .thumbnail(&history.character.avatar.to_string())
+                                                .thumbnail(history.character.avatar.to_string())
                                                 .footer(serenity::CreateEmbedFooter::new("1/1")),
                                         ),
                                     )
@@ -443,7 +443,7 @@ fn create_buttons(id: MessageId, disabled: bool) -> Vec<CreateActionRow<'static>
 fn get_chat_message_and_history(event: &FullEvent, data: &Arc<Data>) -> Option<(Message, History)> {
     let message = event.get_message()?;
     let reply = message.get_reply()?;
-    let history = data.get_history(reply).ok()?;
+    let history = data.get_history(reply)?;
     Some((message.to_owned(), history))
 }
 

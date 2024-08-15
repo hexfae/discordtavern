@@ -1,7 +1,7 @@
 #![allow(clippy::unreadable_literal)]
 use crate::prelude::*;
-use crate::utils::{
-    commands::{chat::prata, example::add_example, gubbar::gubbar, gubbe::gubbe},
+use crate::{
+    commands::{chat::prata, gubbar::gubbar, gubbe::gubbe},
     event_handler::event_handler,
 };
 use async_openai::{config::OpenAIConfig, Client};
@@ -35,22 +35,16 @@ impl Data {
         Ok(())
     }
 
-    pub fn character(&self, character_name: &str) -> Result<Character> {
-        self.characters
-            .get(character_name)
-            .map(|c| c.clone())
-            .ok_or(Error::CharacterNotFound)
+    pub fn character(&self, character_name: &str) -> Option<Character> {
+        self.characters.get(character_name).map(|c| c.clone())
     }
 
     pub fn characters(&self) -> Vec<Character> {
         self.characters.iter().map(|c| c.clone()).collect_vec()
     }
 
-    pub fn get_history(&self, message: &Message) -> Result<History> {
-        self.chats
-            .get(&message.id)
-            .map(|c| c.clone())
-            .ok_or(Error::HistoryNotFound)
+    pub fn get_history(&self, message: &Message) -> Option<History> {
+        self.chats.get(&message.id).map(|c| c.clone())
     }
 
     pub fn insert_history(&self, history: History) {
@@ -64,11 +58,8 @@ impl Data {
         self.save();
     }
 
-    pub fn remove_character(&self, character_name: &str) -> Result<()> {
-        self.characters
-            .remove(character_name)
-            .map(|_| ())
-            .ok_or(Error::CharacterNotFound)
+    pub fn remove_character(&self, character_name: &str) -> Option<()> {
+        self.characters.remove(character_name).map(|_| ())
     }
 
     pub fn load() -> Self {
@@ -110,7 +101,7 @@ impl Data {
 async fn start_bot(data: Data) -> Result<()> {
     let bot_token = CONFIG.read().bot_token();
 
-    let bot_commands = vec![prata(), gubbe(), gubbar(), add_example(), register()];
+    let bot_commands = vec![prata(), gubbe(), gubbar(), register()];
 
     let framework_options = FrameworkOptions {
         commands: bot_commands,
