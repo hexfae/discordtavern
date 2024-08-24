@@ -118,8 +118,11 @@ impl From<SuperMessage> for ChatCompletionRequestMessage {
         let author = super_message
             .author
             .replace(' ', "_")
+            .replace('Å', "Ao")
             .replace('å', "ao")
+            .replace('Ä', "Ae")
             .replace('ä', "ae")
+            .replace('Ö', "Oe")
             .replace('ö', "oe");
         let message_content = super_message.message;
 
