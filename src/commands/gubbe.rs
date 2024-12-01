@@ -8,6 +8,7 @@ use crate::{
 
 #[poise::command(
     slash_command,
+    prefix_command,
     subcommand_required,
     subcommands("visa", "skapa", "ändra", "döda")
 )]
@@ -16,7 +17,7 @@ pub async fn gubbe(_: Context<'_>) -> Result<()> {
     Ok(())
 }
 
-#[poise::command(slash_command)]
+#[poise::command(slash_command, prefix_command)]
 async fn visa(
     ctx: Context<'_>,
     #[description = "Gubbens namn"]

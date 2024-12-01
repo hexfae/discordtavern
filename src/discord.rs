@@ -101,7 +101,13 @@ impl Data {
 async fn start_bot(data: Data) -> Result<()> {
     let bot_token = CONFIG.read().bot_token();
 
-    let bot_commands = vec![prata(), gubbe(), gubbar(), register()];
+    let bot_commands = vec![
+        prata(),
+        crate::commands::gubbe2::gubbe(),
+        gubbe(),
+        gubbar(),
+        register(),
+    ];
 
     let framework_options = FrameworkOptions {
         commands: bot_commands,
