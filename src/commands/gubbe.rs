@@ -1,3 +1,6 @@
+use poise::CreateReply;
+use serenity::CreateEmbed;
+
 use crate::{
     character::{Avatar, Emoji},
     prelude::*,
@@ -5,11 +8,48 @@ use crate::{
 
 #[poise::command(
     slash_command,
+    prefix_command,
     subcommand_required,
-    subcommands("skapa", "ändra", "döda")
+    subcommands("visa", "skapa", "ändra", "döda")
 )]
 #[allow(clippy::unused_async)]
 pub async fn gubbe(_: Context<'_>) -> Result<()> {
+    Ok(())
+}
+
+#[poise::command(slash_command, prefix_command)]
+async fn visa(
+    ctx: Context<'_>,
+    #[description = "Gubbens namn"]
+    #[autocomplete = "autocomplete_character_name"]
+    namn: String,
+) -> Result<()> {
+    let Some(most_similar_name) = most_similar_name_to(&namn, ctx) else {
+        ctx.say("Gubben hittades inte!").await?;
+        return Ok(());
+    };
+    let Some(character) = ctx.data().character(&most_similar_name) else {
+        ctx.say("Gubben hittades inte!").await?;
+        return Ok(());
+    };
+
+    let reply = {
+        let character_name = character.to_string();
+        let greeting = character.greeting.to_string();
+        let description = character.description.to_string();
+        let avatar = character.avatar.to_string();
+
+        let embed = CreateEmbed::default()
+            .title(character_name)
+            .description(description)
+            .field("Hälsning", greeting, false)
+            .thumbnail(avatar);
+
+        CreateReply::default().embed(embed)
+    };
+
+    ctx.send(reply).await?;
+
     Ok(())
 }
 
