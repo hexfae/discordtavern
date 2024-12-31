@@ -70,8 +70,8 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
         .model(CONFIG.read().openai_model())
         .max_tokens(2048_u16)
         .temperature(1.3)
-        // .frequency_penalty(0.5)
-        // .presence_penalty(0.5)
+        .frequency_penalty(0.5)
+        .presence_penalty(0.5)
         .messages(history.clone())
         .build()?;
     let mut output = String::new();
@@ -319,8 +319,8 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                     .model(CONFIG.read().openai_model())
                     .max_tokens(2048_u16)
                     .temperature(1.3)
-                    // .frequency_penalty(0.5)
-                    // .presence_penalty(0.5)
+                    .frequency_penalty(0.5)
+                    .presence_penalty(0.5)
                     .messages(history.clone())
                     .build()?;
                 let mut output = String::new();
