@@ -94,7 +94,7 @@ impl From<serenity::Message> for SuperMessage {
             .attachments
             .first()
             .map(|attachment| attachment.url.to_string());
-        let message = message.content.into();
+        let message = format!("{author}: {}", message.content);
         Self {
             author,
             message,
