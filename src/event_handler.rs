@@ -11,7 +11,6 @@ use poise::serenity_prelude::{
     CreateMessage, EditMessage, FullEvent, Message, MessageId, ReactionType,
 };
 use poise::{execute_modal_on_component_interaction, Modal};
-use tracing::info;
 
 #[derive(Debug, Clone, Modal)]
 #[name = "Redigera meddelandet"]
@@ -27,14 +26,9 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
     let Some((new_message, mut history)) = get_chat_message_and_history(event, &data) else {
         return Ok(());
     };
-    info!(
-        "nytt meddelande av {}:\ninnehåll: {}\nid: {}\ntid: {}",
-        new_message.author, new_message.content, new_message.id, new_message.timestamp
-    );
     let http = ctx.serenity_context.http.clone();
     history.push_message(history.choices[history.current_page].clone());
     history.push_message(new_message.clone());
-    info!("{history}");
 
     let msg_id = new_message.id;
     let prev_button_id = format!("{msg_id}prev");
