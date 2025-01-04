@@ -1,16 +1,16 @@
 [package]
 name = "discordtavern"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 
 [dependencies]
 async-openai = "0.23.4"
+bon = "3.3.2"
 cfg-if = "1.0.0"
 dashmap = { version = "6.0.1", features = ["serde"] }
 derive_more = { version = "1.0.0", features = ["display", "into", "as_ref", "from"] }
 futures = "0.3.30"
 itertools = "0.13.0"
-once_cell = "1.19.0"
 parking_lot = { version = "0.12.3", features = ["serde"] }
 poise = { git = "https://github.com/serenity-rs/poise.git", branch = "serenity-next" }
 ron = "0.9.0-alpha.0"

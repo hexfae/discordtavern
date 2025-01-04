@@ -1,15 +1,17 @@
 use crate::prelude::*;
 
 use derive_more::Into;
-use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
 use serenity::UserId;
-use std::fs::{read_to_string, write};
+use std::{
+    fs::{read_to_string, write},
+    sync::LazyLock,
+};
 use tracing::warn;
 
-pub static CONFIG: Lazy<RwLock<Config>> = Lazy::new(|| {
+pub static CONFIG: LazyLock<RwLock<Config>> = LazyLock::new(|| {
     read_to_string("config.ron").map_or_else(
         |_| Config::create(),
         |string| match Config::load(string) {
