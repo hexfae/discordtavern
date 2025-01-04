@@ -2,10 +2,11 @@ use crate::prelude::*;
 
 use super::character::Character;
 use async_openai::types::{
-    ChatCompletionRequestAssistantMessage, ChatCompletionRequestMessage,
-    ChatCompletionRequestMessageContentPart, ChatCompletionRequestMessageContentPartImage,
+    ChatCompletionRequestAssistantMessage, ChatCompletionRequestAssistantMessageContent,
+    ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPartImage,
     ChatCompletionRequestMessageContentPartText, ChatCompletionRequestUserMessage,
-    ChatCompletionRequestUserMessageContent, CreateChatCompletionResponse, ImageUrl, Role,
+    ChatCompletionRequestUserMessageContent, ChatCompletionRequestUserMessageContentPart,
+    CreateChatCompletionResponse, ImageUrl, Role,
 };
 use bon::Builder;
 use derive_more::{Display, Into};
@@ -122,17 +123,19 @@ impl From<SuperMessage> for ChatCompletionRequestMessage {
 
         if role == Role::Assistant {
             Self::Assistant(ChatCompletionRequestAssistantMessage {
-                content: Some(message_content),
+                content: Some(ChatCompletionRequestAssistantMessageContent::Text(
+                    message_content,
+                )),
                 name: Some(author),
                 ..Default::default()
             })
         } else {
             let content = if let Some(url) = super_message.image {
                 ChatCompletionRequestUserMessageContent::Array(vec![
-                    ChatCompletionRequestMessageContentPart::Text(
+                    ChatCompletionRequestUserMessageContentPart::Text(
                         ChatCompletionRequestMessageContentPartText::from(message_content),
                     ),
-                    ChatCompletionRequestMessageContentPart::ImageUrl(
+                    ChatCompletionRequestUserMessageContentPart::ImageUrl(
                         ChatCompletionRequestMessageContentPartImage {
                             image_url: ImageUrl { url, detail: None },
                         },
