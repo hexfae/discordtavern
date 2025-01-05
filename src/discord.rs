@@ -43,7 +43,7 @@ impl Data {
         self.characters.iter().map(|c| c.clone()).collect_vec()
     }
 
-    pub fn get_history(&self, message: &Message) -> Option<History> {
+    pub fn history(&self, message: &Message) -> Option<History> {
         self.chats.get(&message.id).map(|c| c.clone())
     }
 
