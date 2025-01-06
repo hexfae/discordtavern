@@ -98,7 +98,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                     if why == "Stream ended" {
                         break;
                     }
-                    output = format!("Någonting gick fel, skyll inte på mig!: {err}");
+                    output = format!("Någonting gick fel, skyll inte på mig: {err}");
                     message
                         .edit(
                             &http,
@@ -346,7 +346,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                                 if why == "Stream ended" {
                                     break;
                                 }
-                                output = format!("Någonting gick fel, skyll på OpenAI!: {err}");
+                                output = format!("Någonting gick fel, skyll inte på mig: {err}");
                                 message
                                     .edit(
                                         &http,
