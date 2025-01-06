@@ -82,8 +82,12 @@ impl SuperMessage {
 
 impl From<serenity::Message> for SuperMessage {
     fn from(input: Message) -> Self {
-        let author = substitute_name(input.author.name);
-        let message = format!("{author}: {}", input.content);
+        let (author, message) = if let Some((author, message)) = input.content.split_once(':') {
+            (author.to_string(), message.to_string())
+        } else {
+            let author = substitute_name(input.author.name);
+            (author.clone(), format!("{author}: {}", input.content))
+        };
         let image = input
             .attachments
             .first()
