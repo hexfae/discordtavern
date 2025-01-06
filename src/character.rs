@@ -14,7 +14,7 @@ pub struct Character {
     pub example_messages: ExampleMessages,
 }
 
-#[derive(Debug, Display, Into, Serialize, Deserialize, Clone)]
+#[derive(Debug, Display, From, Into, Serialize, Deserialize, Clone)]
 pub struct Name(String);
 
 #[derive(Debug, Display, From, Into, Serialize, Deserialize, Clone)]

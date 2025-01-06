@@ -187,6 +187,7 @@ async fn döda(
     ctx: Context<'_>,
     #[description = "Gubbens namn"]
     #[autocomplete = "autocomplete_character_name"]
+    #[rest]
     namn: String,
 ) -> Result<()> {
     ctx.defer_ephemeral().await?;

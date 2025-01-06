@@ -4,11 +4,11 @@ use std::time::{Duration, Instant};
 use crate::discord::Data;
 use crate::prelude::*;
 use async_openai::error::OpenAIError;
-use async_openai::types::CreateChatCompletionRequestArgs;
+use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionRequestArgs};
 use futures::StreamExt;
 use poise::serenity_prelude::{
     ComponentInteractionCollector, CreateActionRow, CreateEmbed, CreateInteractionResponse,
-    CreateMessage, EditMessage, FullEvent, Message, MessageId, ReactionType,
+    CreateMessage, EditMessage, FullEvent, Message, ReactionType, Http,
 };
 use poise::{execute_modal_on_component_interaction, Modal};
 
@@ -20,54 +20,46 @@ pub struct EditMessageModal {
     pub message: String,
 }
 
+fn create_button_ids(msg: &Message) -> (String, String, String, String) {
+    let msg_id = msg.id;
+    (format!("{msg_id}prev"), format!("{msg_id}next"), format!("{msg_id}pin"), format!("{msg_id}edit"))
+}
+
+async fn create_initial_message(http: &Http, history: &History, new_message: &Message) -> Result<Message> {
+    let (_, disabled_buttons) = create_buttons(new_message);
+
+    let character_name = history.character.name.to_string();
+    let character_avatar = history.character.avatar.to_string();
+
+    let initial_embed = serenity::CreateEmbed::new()
+        .title(character_name)
+        .description("…")
+        .thumbnail(character_avatar)
+        .footer(serenity::CreateEmbedFooter::new("1/1"));
+
+    let initial_message = CreateMessage::default()
+        .embed(initial_embed)
+        .components(disabled_buttons.clone())
+        .reference_message(new_message);
+
+    Ok(new_message.channel_id.send_message(http, initial_message).await?)
+}
+
 #[allow(clippy::too_many_lines)]
 pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Result<()> {
     let data = ctx.user_data();
     let Some((new_message, mut history)) = get_chat_message_and_history(event, &data) else {
         return Ok(());
     };
-    let http = ctx.serenity_context.http.clone();
+    let http = &ctx.serenity_context.http;
     history.push_message(history.choices[history.current_page].clone());
     history.push_message(new_message.clone());
 
-    let msg_id = new_message.id;
-    let prev_button_id = format!("{msg_id}prev");
-    let next_button_id = format!("{msg_id}next");
-    let pin_button_id = format!("{msg_id}pin");
-    let edit_button_id = format!("{msg_id}edit");
-
-    let disabled_buttons = create_buttons(msg_id, true);
-    let enabled_buttons = create_buttons(msg_id, false);
-
-    let character_name = history.character.to_string();
-    let character_avatar = history.character.avatar.to_string();
-
-    let mut message = {
-        let initial_embed = serenity::CreateEmbed::new()
-            .title(character_name.clone())
-            .description("…")
-            .thumbnail(character_avatar.clone())
-            .footer(serenity::CreateEmbedFooter::new("1/1"));
-
-        let initial_message = CreateMessage::default()
-            .embed(initial_embed)
-            .components(disabled_buttons.clone())
-            .reference_message(&new_message);
-
-        new_message
-            .channel_id
-            .send_message(&http, initial_message)
-            .await?
-    };
+    let (prev_button_id, next_button_id, pin_button_id, edit_button_id) = create_button_ids(&new_message);
+    let (enabled_buttons, disabled_buttons) = create_buttons(&new_message);
+    let mut message = create_initial_message(http, &history, &new_message).await?;
     let now = std::time::Instant::now();
-    let request = CreateChatCompletionRequestArgs::default()
-        .model(CONFIG.read().openai_model())
-        .max_tokens(2048_u16)
-        .temperature(1.3)
-        .frequency_penalty(0.5)
-        .presence_penalty(0.5)
-        .messages(history.clone())
-        .build()?;
+    let request = create_request(history.clone())?;
     let mut output = String::new();
     let mut stream = data.ai.chat().create_stream(request).await?;
     let mut one_second_timer = Instant::now();
@@ -106,7 +98,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                     if why == "Stream ended" {
                         break;
                     }
-                    output = format!("Någonting gick fel, skyll på OpenAI!: {err}");
+                    output = format!("Någonting gick fel, skyll inte på mig: {err}");
                     message
                         .edit(
                             &http,
@@ -152,7 +144,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
     let mut current_page: usize = 0;
     while let Some(interaction) =
         ComponentInteractionCollector::new(ctx.serenity_context.shard.clone())
-            .filter(move |interaction| interaction.data.custom_id.starts_with(&msg_id.to_string()))
+            .filter(move |interaction| interaction.data.custom_id.starts_with(&new_message.id.to_string()))
             .timeout(Duration::from_secs(60 * 60 * 24))
             .await
     {
@@ -170,12 +162,12 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                 .embed(embed)
                 .reference_message(&new_message);
 
-            let pinned_message = channel_id.send_message(&http, message).await?;
+            let pinned_message = channel_id.send_message(http, message).await?;
 
-            pinned_message.pin(&http, None).await?;
+            pinned_message.pin(http, None).await?;
 
             interaction
-                .create_response(&http, CreateInteractionResponse::Acknowledge)
+                .create_response(http, CreateInteractionResponse::Acknowledge)
                 .await?;
         } else if interaction.data.custom_id == edit_button_id {
             let footer = format!(
@@ -220,7 +212,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                     )
                     .await?;
                 interaction
-                    .create_response(&http, CreateInteractionResponse::Acknowledge)
+                    .create_response(http, CreateInteractionResponse::Acknowledge)
                     .await?;
                 continue;
             };
@@ -255,7 +247,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                 )
                 .await?;
         } else if interaction.data.custom_id == prev_button_id {
-            interaction.defer(&http).await?;
+            interaction.defer(http).await?;
             current_page = current_page
                 .checked_sub(1)
                 .unwrap_or_else(|| &history.choices.len() - 1);
@@ -288,7 +280,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                 .await?;
             data.insert_history(history.clone());
         } else if interaction.data.custom_id == next_button_id {
-            interaction.defer(&http).await?;
+            interaction.defer(http).await?;
             current_page += 1;
             history.current_page = current_page;
 
@@ -309,14 +301,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                     )
                     .await?;
                 let now = std::time::Instant::now();
-                let request = CreateChatCompletionRequestArgs::default()
-                    .model(CONFIG.read().openai_model())
-                    .max_tokens(2048_u16)
-                    .temperature(1.3)
-                    .frequency_penalty(0.5)
-                    .presence_penalty(0.5)
-                    .messages(history.clone())
-                    .build()?;
+                let request = create_request(history.clone())?;
                 let mut output = String::new();
                 let mut stream = data.ai.chat().create_stream(request).await?;
                 let mut one_second_timer = Instant::now();
@@ -361,7 +346,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                                 if why == "Stream ended" {
                                     break;
                                 }
-                                output = format!("Någonting gick fel, skyll på OpenAI!: {err}");
+                                output = format!("Någonting gick fel, skyll inte på mig: {err}");
                                 message
                                     .edit(
                                         &http,
@@ -415,6 +400,17 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
     Ok(())
 }
 
+fn create_request(history: History) -> Result<CreateChatCompletionRequest> {
+    Ok(CreateChatCompletionRequestArgs::default()
+        .model(CONFIG.read().openai_model())
+        .max_tokens(2048_u16)
+        .temperature(1.3)
+        .frequency_penalty(0.5)
+        .presence_penalty(0.5)
+        .messages(history)
+        .build()?)
+}
+
 fn create_button(
     emoji: impl Into<String>,
     id: impl Into<String>,
@@ -425,28 +421,37 @@ fn create_button(
         .disabled(disabled)
 }
 
-fn create_buttons(id: MessageId, disabled: bool) -> Vec<CreateActionRow<'static>> {
-    vec![CreateActionRow::Buttons(vec![
-        create_button('◀', format!("{id}prev"), disabled),
-        create_button('▶', format!("{id}next"), disabled),
-        create_button('📌', format!("{id}pin"), disabled),
-        create_button("✏️", format!("{id}edit"), disabled),
-    ])]
+fn create_buttons(msg: &Message) -> (Vec<CreateActionRow<'static>>, Vec<CreateActionRow<'static>>) {
+    let msg_id = msg.id;
+    (
+        vec![CreateActionRow::Buttons(vec![
+            create_button('◀', format!("{msg_id}prev"), false),
+            create_button('▶', format!("{msg_id}next"), false),
+            create_button('📌', format!("{msg_id}pin"), false),
+            create_button("✏️", format!("{msg_id}edit"), false),
+        ])],
+        vec![CreateActionRow::Buttons(vec![
+            create_button('◀', format!("{msg_id}prev"), true),
+            create_button('▶', format!("{msg_id}next"), true),
+            create_button('📌', format!("{msg_id}pin"), true),
+            create_button("✏️", format!("{msg_id}edit"), true),
+        ])],
+    )
 }
 
 fn get_chat_message_and_history(event: &FullEvent, data: &Arc<Data>) -> Option<(Message, History)> {
-    let message = event.get_message()?;
+    let message = event.message()?;
     let reply = message.get_reply()?;
-    let history = data.get_history(reply)?;
+    let history = data.history(reply)?;
     Some((message.to_owned(), history))
 }
 
 trait MessageFromEvent {
-    fn get_message(&self) -> Option<&Message>;
+    fn message(&self) -> Option<&Message>;
 }
 
 impl MessageFromEvent for FullEvent {
-    fn get_message(&self) -> Option<&Message> {
+    fn message(&self) -> Option<&Message> {
         if let Self::Message { new_message } = self {
             Some(new_message)
         } else {

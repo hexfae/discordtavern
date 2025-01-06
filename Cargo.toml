@@ -1,26 +1,26 @@
 [package]
 name = "discordtavern"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 
 [dependencies]
-async-openai = "0.23.4"
+async-openai = "0.26.0"
 bon = "3.3.2"
 cfg-if = "1.0.0"
-dashmap = { version = "6.0.1", features = ["serde"] }
+dashmap = { version = "6.1.0", features = ["serde"] }
 derive_more = { version = "1.0.0", features = ["display", "into", "as_ref", "from"] }
-futures = "0.3.30"
-itertools = "0.13.0"
+futures = "0.3.31"
+itertools = "0.14.0"
 parking_lot = { version = "0.12.3", features = ["serde"] }
 poise = { git = "https://github.com/serenity-rs/poise.git", branch = "serenity-next" }
 ron = "0.9.0-alpha.0"
-serde = { version = "1.0.205", features = ["derive"] }
-small-fixed-array = "0.4.5"
+serde = { version = "1.0.217", features = ["derive"] }
+small-fixed-array = "0.4.7"
 strsim = "0.11.1"
-thiserror = "1.0.63"
-tokio = { version = "1.39.2", features = ["rt-multi-thread", "signal"] }
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+thiserror = "2.0.9"
+tokio = { version = "1.42.0", features = ["rt-multi-thread", "signal"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
 [lints.rust]
 unsafe_code = "forbid"
