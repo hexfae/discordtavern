@@ -1,4 +1,5 @@
 #![allow(clippy::unreadable_literal)]
+use crate::commands::tts::läs_upp;
 use crate::prelude::*;
 use crate::{
     commands::{chat::prata, gubbar::gubbar, gubbe::gubbe},
@@ -101,7 +102,7 @@ impl Data {
 async fn start_bot(data: Data) -> Result<()> {
     let bot_token = CONFIG.read().bot_token();
 
-    let bot_commands = vec![prata(), gubbe(), gubbar(), register()];
+    let bot_commands = vec![prata(), gubbe(), gubbar(), läs_upp(), register()];
 
     let framework_options = FrameworkOptions {
         commands: bot_commands,

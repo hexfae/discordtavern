@@ -5,6 +5,10 @@ pub enum Error {
     #[error(transparent)]
     OpenAI(#[from] async_openai::error::OpenAIError),
     #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+    #[error(transparent)]
+    Base64(#[from] base64::DecodeError),
+    #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
     SpannedRon(#[from] ron::error::SpannedError),
