@@ -14,7 +14,7 @@ futures = "0.3.31"
 itertools = "0.14.0"
 parking_lot = { version = "0.12.3", features = ["serde"] }
 poise = { git = "https://github.com/serenity-rs/poise.git", branch = "serenity-next" }
-reqwest = { version = "0.12.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls"] }
 ron = "0.9.0-alpha.0"
 serde = { version = "1.0.217", features = ["derive"] }
 small-fixed-array = "0.4.7"

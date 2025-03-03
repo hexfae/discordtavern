@@ -9,6 +9,10 @@ mod super_message;
 
 #[tokio::main]
 async fn main() -> prelude::Result<()> {
+    std::fs::write(
+        "out.mp3",
+        commands::tts::send_tts_request("this is a test").await?,
+    )?;
     start_logging()?;
     discord::Data::start_bot().await
 }

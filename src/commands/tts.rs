@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use base64::{prelude::BASE64_STANDARD, Engine};
 use poise::CreateReply;
+use serde::Deserialize;
 use serenity::CreateAttachment;
 
 use crate::prelude::*;
@@ -26,6 +29,7 @@ pub async fn läs_upp(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
 }
 
 pub async fn send_tts_request(content: impl AsRef<str>) -> Result<Vec<u8>> {
+    let request = HashMap::from([("text", content.as_ref()), ("voice", "en_us_001")]);
     let response = reqwest::Client::new()
         .post("https://countik.com/api/text/speech")
         .header(
@@ -33,13 +37,17 @@ pub async fn send_tts_request(content: impl AsRef<str>) -> Result<Vec<u8>> {
             "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0",
         )
         .header("Content-Type", "application/json")
-        .body(format!(
-            r#"{{"text": "{}", "voice": "en_us_001"}}"#,
-            content.as_ref()
-        ))
+        .json(&request)
         .send()
         .await?
-        .bytes()
+        .json::<Response>()
         .await?;
-    Ok(BASE64_STANDARD.decode(response)?)
+    Ok(BASE64_STANDARD.decode(response.v_data)?)
+}
+
+#[derive(Deserialize)]
+struct Response {
+    #[allow(dead_code)]
+    status: bool,
+    v_data: String,
 }
