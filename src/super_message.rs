@@ -117,7 +117,9 @@ impl From<SuperMessage> for ChatCompletionRequestMessage {
         match super_message.role {
             Role::Assistant => Self::Assistant(ChatCompletionRequestAssistantMessage {
                 name: Some(author),
-                content: Some(ChatCompletionRequestAssistantMessageContent::Text(super_message.message)),
+                content: Some(ChatCompletionRequestAssistantMessageContent::Text(
+                    super_message.message,
+                )),
                 ..Default::default()
             }),
             _ => Self::User(ChatCompletionRequestUserMessage {
@@ -139,7 +141,10 @@ fn sanitize_author_name(input: &str) -> String {
         .replace('ö', "oe")
 }
 
-fn create_user_content(message: String, image: Option<String>) -> ChatCompletionRequestUserMessageContent {
+fn create_user_content(
+    message: String,
+    image: Option<String>,
+) -> ChatCompletionRequestUserMessageContent {
     match image {
         Some(url) => ChatCompletionRequestUserMessageContent::Array(vec![
             ChatCompletionRequestUserMessageContentPart::Text(

@@ -108,6 +108,7 @@ impl Config {
 }
 
 impl BotToken {
+    #[allow(clippy::missing_const_for_fn)] // no it can't
     pub fn as_str(&self) -> &str {
         &self.0
     }
