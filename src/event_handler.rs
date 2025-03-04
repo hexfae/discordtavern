@@ -8,9 +8,9 @@ use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionReque
 use futures::StreamExt;
 use poise::serenity_prelude::{
     ComponentInteractionCollector, CreateActionRow, CreateEmbed, CreateInteractionResponse,
-    CreateMessage, EditMessage, FullEvent, Message, ReactionType, Http,
+    CreateMessage, EditMessage, FullEvent, Http, Message, ReactionType,
 };
-use poise::{execute_modal_on_component_interaction, Modal};
+use poise::{Modal, execute_modal_on_component_interaction};
 
 #[derive(Debug, Clone, Modal)]
 #[name = "Redigera meddelandet"]
@@ -22,10 +22,19 @@ pub struct EditMessageModal {
 
 fn create_button_ids(msg: &Message) -> (String, String, String, String) {
     let msg_id = msg.id;
-    (format!("{msg_id}prev"), format!("{msg_id}next"), format!("{msg_id}pin"), format!("{msg_id}edit"))
+    (
+        format!("{msg_id}prev"),
+        format!("{msg_id}next"),
+        format!("{msg_id}pin"),
+        format!("{msg_id}edit"),
+    )
 }
 
-async fn create_initial_message(http: &Http, history: &History, new_message: &Message) -> Result<Message> {
+async fn create_initial_message(
+    http: &Http,
+    history: &History,
+    new_message: &Message,
+) -> Result<Message> {
     let (_, disabled_buttons) = create_buttons(new_message);
 
     let character_name = history.character.name.to_string();
@@ -42,7 +51,10 @@ async fn create_initial_message(http: &Http, history: &History, new_message: &Me
         .components(disabled_buttons.clone())
         .reference_message(new_message);
 
-    Ok(new_message.channel_id.send_message(http, initial_message).await?)
+    Ok(new_message
+        .channel_id
+        .send_message(http, initial_message)
+        .await?)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -55,7 +67,8 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
     history.push_message(history.choices[history.current_page].clone());
     history.push_message(new_message.clone());
 
-    let (prev_button_id, next_button_id, pin_button_id, edit_button_id) = create_button_ids(&new_message);
+    let (prev_button_id, next_button_id, pin_button_id, edit_button_id) =
+        create_button_ids(&new_message);
     let (enabled_buttons, disabled_buttons) = create_buttons(&new_message);
     let mut message = create_initial_message(http, &history, &new_message).await?;
     let now = std::time::Instant::now();
@@ -144,7 +157,12 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
     let mut current_page: usize = 0;
     while let Some(interaction) =
         ComponentInteractionCollector::new(ctx.serenity_context.shard.clone())
-            .filter(move |interaction| interaction.data.custom_id.starts_with(&new_message.id.to_string()))
+            .filter(move |interaction| {
+                interaction
+                    .data
+                    .custom_id
+                    .starts_with(&new_message.id.to_string())
+            })
             .timeout(Duration::from_secs(60 * 60 * 24))
             .await
     {
@@ -402,7 +420,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
 
 fn create_request(history: History) -> Result<CreateChatCompletionRequest> {
     Ok(CreateChatCompletionRequestArgs::default()
-        .model(CONFIG.read().openai_model())
+        .model(CONFIG.openai_model())
         .max_tokens(2048_u16)
         .temperature(1.3)
         .frequency_penalty(0.5)

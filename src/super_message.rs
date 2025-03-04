@@ -92,7 +92,7 @@ impl From<serenity::Message> for SuperMessage {
             .attachments
             .first()
             .map(|attachment| attachment.url.to_string());
-        let is_bot = input.author.id == CONFIG.read().bot_id();
+        let is_bot = input.author.id == CONFIG.bot_id();
         let role = if is_bot { Role::Assistant } else { Role::User };
         let edited = input.edited_timestamp.is_some();
         Self::builder()
