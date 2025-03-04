@@ -1,26 +1,26 @@
 [package]
 name = "discordtavern"
 version = "0.2.7"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-async-openai = "0.26.0"
+async-openai = "0.28.0"
 base64 = "0.22.1"
 bon = "3.3.2"
 cfg-if = "1.0.0"
-dashmap = { version = "6.1.0", features = ["serde"] }
-derive_more = { version = "1.0.0", features = ["display", "into", "as_ref", "from"] }
+dashmap = { version = "7.0.0-rc1", features = ["serde"] }
+derive_more = { version = "2.0.1", features = ["display", "into", "as_ref", "from"] }
 futures = "0.3.31"
 itertools = "0.14.0"
 parking_lot = { version = "0.12.3", features = ["serde"] }
 poise = { git = "https://github.com/serenity-rs/poise.git", branch = "serenity-next" }
 reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls"] }
-ron = "0.9.0-alpha.0"
-serde = { version = "1.0.217", features = ["derive"] }
-small-fixed-array = "0.4.7"
+ron = "0.9.0-alpha.1"
+serde = { version = "1.0.218", features = ["derive"] }
+small-fixed-array = "0.4.8"
 strsim = "0.11.1"
-thiserror = "2.0.9"
-tokio = { version = "1.42.0", features = ["rt-multi-thread", "signal"] }
+thiserror = "2.0.12"
+tokio = { version = "1.43.0", features = ["rt-multi-thread", "signal"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
