@@ -82,7 +82,7 @@ impl SuperMessage {
 
 impl From<serenity::Message> for SuperMessage {
     fn from(input: Message) -> Self {
-        let (author, message) = if let Some((author, message)) = input.content.split_once(':') {
+        let (author, message) = if let Some((author, _)) = input.content.split_once(':') {
             (author.to_string(), input.content.to_string())
         } else {
             let author = substitute_name(input.author.name);
@@ -92,7 +92,7 @@ impl From<serenity::Message> for SuperMessage {
             .attachments
             .first()
             .map(|attachment| attachment.url.to_string());
-        let is_bot = input.author.id == CONFIG.read().bot_id();
+        let is_bot = input.author.id == CONFIG.bot_id();
         let role = if is_bot { Role::Assistant } else { Role::User };
         let edited = input.edited_timestamp.is_some();
         Self::builder()
@@ -113,47 +113,50 @@ impl From<CreateChatCompletionResponse> for SuperMessage {
 
 impl From<SuperMessage> for ChatCompletionRequestMessage {
     fn from(super_message: SuperMessage) -> Self {
-        let role = super_message.role;
-        let author = super_message
-            .author
-            .replace(' ', "_")
-            .replace('Å', "Ao")
-            .replace('å', "ao")
-            .replace('Ä', "Ae")
-            .replace('ä', "ae")
-            .replace('Ö', "Oe")
-            .replace('ö', "oe");
-        let message_content = super_message.message;
-
-        if role == Role::Assistant {
-            Self::Assistant(ChatCompletionRequestAssistantMessage {
+        let author = sanitize_author_name(&super_message.author);
+        match super_message.role {
+            Role::Assistant => Self::Assistant(ChatCompletionRequestAssistantMessage {
+                name: Some(author),
                 content: Some(ChatCompletionRequestAssistantMessageContent::Text(
-                    message_content,
+                    super_message.message,
                 )),
-                name: Some(author),
                 ..Default::default()
-            })
-        } else {
-            let content = if let Some(url) = super_message.image {
-                ChatCompletionRequestUserMessageContent::Array(vec![
-                    ChatCompletionRequestUserMessageContentPart::Text(
-                        ChatCompletionRequestMessageContentPartText::from(message_content),
-                    ),
-                    ChatCompletionRequestUserMessageContentPart::ImageUrl(
-                        ChatCompletionRequestMessageContentPartImage {
-                            image_url: ImageUrl { url, detail: None },
-                        },
-                    ),
-                ])
-            } else {
-                ChatCompletionRequestUserMessageContent::Text(message_content)
-            };
-
-            Self::User(ChatCompletionRequestUserMessage {
+            }),
+            _ => Self::User(ChatCompletionRequestUserMessage {
                 name: Some(author),
-                content,
-            })
+                content: create_user_content(super_message.message, super_message.image),
+            }),
         }
+    }
+}
+
+fn sanitize_author_name(input: &str) -> String {
+    input
+        .replace(' ', "_")
+        .replace('Å', "Ao")
+        .replace('å', "ao")
+        .replace('Ä', "Ae")
+        .replace('ä', "ae")
+        .replace('Ö', "Oe")
+        .replace('ö', "oe")
+}
+
+fn create_user_content(
+    message: String,
+    image: Option<String>,
+) -> ChatCompletionRequestUserMessageContent {
+    match image {
+        Some(url) => ChatCompletionRequestUserMessageContent::Array(vec![
+            ChatCompletionRequestUserMessageContentPart::Text(
+                ChatCompletionRequestMessageContentPartText::from(message),
+            ),
+            ChatCompletionRequestUserMessageContentPart::ImageUrl(
+                ChatCompletionRequestMessageContentPartImage {
+                    image_url: ImageUrl { url, detail: None },
+                },
+            ),
+        ]),
+        None => ChatCompletionRequestUserMessageContent::Text(message),
     }
 }
 

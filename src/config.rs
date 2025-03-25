@@ -1,8 +1,7 @@
 use crate::prelude::*;
 
 use derive_more::Into;
-use parking_lot::RwLock;
-use ron::ser::{to_string_pretty, PrettyConfig};
+use ron::ser::{PrettyConfig, to_string_pretty};
 use serde::{Deserialize, Serialize};
 use serenity::UserId;
 use std::{
@@ -11,7 +10,7 @@ use std::{
 };
 use tracing::warn;
 
-pub static CONFIG: LazyLock<RwLock<Config>> = LazyLock::new(|| {
+pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
     read_to_string("config.ron").map_or_else(
         |_| Config::create(),
         |string| match Config::load(string) {
@@ -53,25 +52,25 @@ pub struct OpenAiModel(pub String);
 pub struct NameSubstitutes(pub Vec<(String, String)>);
 
 impl Config {
-    fn new() -> RwLock<Self> {
-        RwLock::new(Self::default())
+    fn new() -> Self {
+        Self::default()
     }
 
-    fn create() -> RwLock<Self> {
+    fn create() -> Self {
         let config = Self::new();
-        let try_save = config.read().save();
+        let try_save = config.save();
         if let Err(why) = try_save {
             warn!("could not save config! {why}");
         };
         config
     }
 
-    fn load(input: impl AsRef<str>) -> Result<RwLock<Self>> {
+    fn load(input: impl AsRef<str>) -> Result<Self> {
         let config = ron::from_str::<Self>(input.as_ref())?;
         if let Err(why) = config.save() {
             warn!("could not save config! {why}");
         };
-        Ok(RwLock::new(config))
+        Ok(config)
     }
 
     fn save(&self) -> Result<()> {
@@ -108,6 +107,7 @@ impl Config {
 }
 
 impl BotToken {
+    #[allow(clippy::missing_const_for_fn)] // no it can't
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -127,7 +127,6 @@ impl Default for OpenAiModel {
 
 pub fn substitute_name(input: impl AsRef<str>) -> String {
     CONFIG
-        .read()
         .name_substitutes
         .0
         .iter()

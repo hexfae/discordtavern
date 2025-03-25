@@ -1,20 +1,20 @@
 #![allow(clippy::unreadable_literal)]
+use crate::commands::tts::läs_upp;
 use crate::prelude::*;
 use crate::{
     commands::{chat::prata, gubbar::gubbar, gubbe::gubbe},
     event_handler::event_handler,
 };
-use async_openai::{config::OpenAIConfig, Client};
+use async_openai::{Client, config::OpenAIConfig};
 use dashmap::DashMap;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
-use poise::serenity_prelude::{ActivityData, ActivityType, MessageId};
 use poise::PrefixFrameworkOptions;
+use poise::serenity_prelude::{ActivityData, ActivityType, MessageId};
 use poise::{
-    serenity_prelude::{ClientBuilder, GatewayIntents, Message},
     Framework, FrameworkOptions,
+    serenity_prelude::{ClientBuilder, GatewayIntents, Message},
 };
-use small_fixed_array::FixedString;
 use std::fs::{read, write};
 use std::sync::Arc;
 
@@ -72,8 +72,8 @@ impl Data {
             |bytes| ron::de::from_bytes(&bytes).expect("valid chats file"),
         );
         let config = OpenAIConfig::default()
-            .with_api_key(CONFIG.read().openai_key())
-            .with_api_base(CONFIG.read().openai_url());
+            .with_api_key(CONFIG.openai_key())
+            .with_api_base(CONFIG.openai_url());
         let ai = Client::with_config(config);
         Self {
             characters,
@@ -99,9 +99,9 @@ impl Data {
 }
 
 async fn start_bot(data: Data) -> Result<()> {
-    let bot_token = CONFIG.read().bot_token();
+    let bot_token = CONFIG.bot_token();
 
-    let bot_commands = vec![prata(), gubbe(), gubbar(), register()];
+    let bot_commands = vec![prata(), gubbe(), gubbar(), läs_upp(), register()];
 
     let framework_options = FrameworkOptions {
         commands: bot_commands,
@@ -119,9 +119,9 @@ async fn start_bot(data: Data) -> Result<()> {
     ClientBuilder::new(bot_token.as_str(), GATEWAY_INTENTS)
         .framework(framework)
         .activity(ActivityData {
-            name: FixedString::from_str_trunc("Heroes of the Storm"),
+            name: "Heroes of the Storm".parse().expect("invalid str length"),
             kind: ActivityType::Playing,
-            state: Some(FixedString::from_str_trunc("0-1-13")),
+            state: Some("0-1-13".parse().expect("invalid str length")),
             url: None,
         })
         .data(Arc::new(data))

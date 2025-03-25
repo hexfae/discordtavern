@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use poise::{execute_modal_on_component_interaction, CreateReply, Modal};
+use poise::{CreateReply, Modal, execute_modal_on_component_interaction};
 use serenity::{
     ComponentInteractionCollector, CreateActionRow, CreateButton, CreateEmbed, ReactionType,
 };

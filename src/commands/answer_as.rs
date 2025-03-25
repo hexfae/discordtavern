@@ -1,76 +1,105 @@
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::discord::Data;
-use crate::prelude::*;
 use async_openai::error::OpenAIError;
-use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionRequestArgs};
 use futures::StreamExt;
-use poise::serenity_prelude::{
-    ComponentInteractionCollector, CreateActionRow, CreateEmbed, CreateInteractionResponse,
-    CreateMessage, EditMessage, FullEvent, Http, Message, ReactionType,
+use poise::{
+    CreateReply, Modal, execute_modal, execute_modal_on_component_interaction,
+    serenity_prelude::{
+        ComponentInteractionCollector, ComponentInteractionDataKind, CreateActionRow, CreateEmbed,
+        CreateInteractionResponse, CreateMessage, CreateSelectMenu, CreateSelectMenuOption,
+        EditMessage,
+    },
 };
-use poise::{Modal, execute_modal_on_component_interaction};
+
+use crate::{
+    discord::Data,
+    error::Error,
+    event_handler::{
+        EditMessageModal, create_button_ids, create_buttons, create_initial_message, create_request,
+    },
+    prelude::*,
+};
 
 #[derive(Debug, Clone, Modal)]
-#[name = "Redigera meddelandet"]
-pub struct EditMessageModal {
-    #[name = "Innehåll"]
-    #[placeholder = "Meddelandets innehåll…"]
-    pub message: String,
+#[name = "Vilken gubbe?"]
+struct CharacterNameModal {
+    #[name = "Namn"]
+    #[placeholder = "Gubbens namn…"]
+    name: String,
 }
 
-fn create_button_ids(msg: &Message) -> (String, String, String, String) {
-    let msg_id = msg.id;
-    (
-        format!("{msg_id}prev"),
-        format!("{msg_id}next"),
-        format!("{msg_id}pin"),
-        format!("{msg_id}edit"),
-    )
-}
-
-async fn create_initial_message(
-    http: &Http,
-    history: &History,
-    new_message: &Message,
-) -> Result<Message> {
-    let (_, disabled_buttons) = create_buttons(new_message);
-
-    let character_name = history.character.name.to_string();
-    let character_avatar = history.character.avatar.to_string();
-
-    let initial_embed = serenity::CreateEmbed::new()
-        .title(character_name)
-        .description("…")
-        .thumbnail(character_avatar)
-        .footer(serenity::CreateEmbedFooter::new("1/1"));
-
-    let initial_message = CreateMessage::default()
-        .embed(initial_embed)
-        .components(disabled_buttons.clone())
-        .reference_message(new_message);
-
-    Ok(new_message
-        .channel_id
-        .send_message(http, initial_message)
-        .await?)
-}
-
+#[poise::command(context_menu_command = "Svara som…")]
 #[allow(clippy::too_many_lines)]
-pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Result<()> {
-    let data = ctx.user_data();
-    let Some((new_message, mut history)) = get_chat_message_and_history(event, &data) else {
+pub async fn svara_som(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
+    ctx.defer_ephemeral().await?;
+    let data = ctx.data();
+    let http = ctx.http();
+    let Some(mut history) = data.history(&msg) else {
+        ctx.reply("Någonting gick fel här! Meddelandet hittades inte i databasen.")
+            .await?;
         return Ok(());
     };
-    let http = &ctx.serenity_context.http;
-    history.push_message(history.choices[history.current_page].clone());
-    history.push_message(new_message.clone());
 
-    let (prev_button_id, next_button_id, pin_button_id, edit_button_id) =
-        create_button_ids(&new_message);
-    let (enabled_buttons, disabled_buttons) = create_buttons(&new_message);
-    let mut message = create_initial_message(http, &history, &new_message).await?;
+    let mut characters = data.characters();
+    characters.truncate(23);
+    let mut chosen_character_name = String::new();
+    let ctx_id = ctx.id();
+
+    {
+        let create_select_menu_options = characters
+            .iter()
+            .map(|character| {
+                CreateSelectMenuOption::new(character.to_string(), character.name.to_string())
+            })
+            .collect();
+        let select_menu = vec![CreateActionRow::SelectMenu(CreateSelectMenu::new(
+            ctx_id.to_string(),
+            serenity::CreateSelectMenuKind::String {
+                options: create_select_menu_options,
+            },
+        ))];
+        dbg!(&select_menu);
+        let msg = CreateReply::new()
+            .content("Var snäll och klicka på nedanstående knapp!")
+            .components(select_menu);
+        let sent = ctx.send(msg).await?;
+
+        'outer: while let Some(interaction) =
+            ComponentInteractionCollector::new(ctx.serenity_context().shard.clone())
+                .filter(move |interaction| {
+                    interaction.data.custom_id.starts_with(&ctx_id.to_string())
+                })
+                .timeout(Duration::from_secs(60 * 60 * 24))
+                .await
+        {
+            if interaction.data.custom_id == ctx_id.to_string() {
+                if let ComponentInteractionDataKind::StringSelect { values } =
+                    &interaction.data.kind
+                {
+                    let selection = values[0].clone();
+                    chosen_character_name = selection;
+                    interaction
+                        .create_response(http, CreateInteractionResponse::Acknowledge)
+                        .await?;
+                    break 'outer;
+                }
+            }
+        }
+        sent.delete(ctx).await?;
+    };
+
+    let Some(new_character) = data.character(&chosen_character_name) else {
+        ctx.say("Gubben kunde inte hittas!").await?;
+        return Ok(());
+    };
+
+    history.character = new_character;
+    history.push_message(history.choices[history.current_page].clone());
+    history.replace_message(6, history.character.greeting.clone());
+
+    let (prev_button_id, next_button_id, pin_button_id, edit_button_id) = create_button_ids(&msg);
+    let (enabled_buttons, disabled_buttons) = create_buttons(&msg);
+    let mut message = create_initial_message(http, &history, &msg).await?;
     let now = std::time::Instant::now();
     let request = create_request(history.clone())?;
     let mut output = String::new();
@@ -156,18 +185,13 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
 
     let mut current_page: usize = 0;
     while let Some(interaction) =
-        ComponentInteractionCollector::new(ctx.serenity_context.shard.clone())
-            .filter(move |interaction| {
-                interaction
-                    .data
-                    .custom_id
-                    .starts_with(&new_message.id.to_string())
-            })
+        ComponentInteractionCollector::new(ctx.serenity_context().shard.clone())
+            .filter(move |interaction| interaction.data.custom_id.starts_with(&msg.id.to_string()))
             .timeout(Duration::from_secs(60 * 60 * 24))
             .await
     {
         if interaction.data.custom_id == pin_button_id {
-            let channel_id = new_message.channel_id;
+            let channel_id = msg.channel_id;
             let character_name = history.character.to_string();
             let message_content = history.choices[current_page].message.to_string();
             let avatar = history.character.avatar.to_string();
@@ -176,9 +200,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                 .title(&character_name)
                 .description(&message_content)
                 .thumbnail(&avatar);
-            let message = CreateMessage::new()
-                .embed(embed)
-                .reference_message(&new_message);
+            let message = CreateMessage::new().embed(embed).reference_message(&msg);
 
             let pinned_message = channel_id.send_message(http, message).await?;
 
@@ -216,7 +238,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                 )
                 .await?;
             let Some(modal) = execute_modal_on_component_interaction::<EditMessageModal>(
-                ctx.serenity_context,
+                ctx.serenity_context(),
                 interaction.clone(),
                 None,
                 None,
@@ -416,74 +438,4 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
     }
 
     Ok(())
-}
-
-fn create_request(history: History) -> Result<CreateChatCompletionRequest> {
-    Ok(CreateChatCompletionRequestArgs::default()
-        .model(CONFIG.openai_model())
-        .max_tokens(2048_u16)
-        .temperature(1.3)
-        .frequency_penalty(0.5)
-        .presence_penalty(0.5)
-        .messages(history)
-        .build()?)
-}
-
-fn create_button(
-    emoji: impl Into<String>,
-    id: impl Into<String>,
-    disabled: bool,
-) -> serenity::CreateButton<'static> {
-    serenity::CreateButton::new(id.into())
-        .emoji(ReactionType::try_from(emoji.into()).expect("valid emoji"))
-        .disabled(disabled)
-}
-
-fn create_buttons(msg: &Message) -> (Vec<CreateActionRow<'static>>, Vec<CreateActionRow<'static>>) {
-    let msg_id = msg.id;
-    (
-        vec![CreateActionRow::Buttons(vec![
-            create_button('◀', format!("{msg_id}prev"), false),
-            create_button('▶', format!("{msg_id}next"), false),
-            create_button('📌', format!("{msg_id}pin"), false),
-            create_button("✏️", format!("{msg_id}edit"), false),
-        ])],
-        vec![CreateActionRow::Buttons(vec![
-            create_button('◀', format!("{msg_id}prev"), true),
-            create_button('▶', format!("{msg_id}next"), true),
-            create_button('📌', format!("{msg_id}pin"), true),
-            create_button("✏️", format!("{msg_id}edit"), true),
-        ])],
-    )
-}
-
-fn get_chat_message_and_history(event: &FullEvent, data: &Arc<Data>) -> Option<(Message, History)> {
-    let message = event.message()?;
-    let reply = message.get_reply()?;
-    let history = data.history(reply)?;
-    Some((message.to_owned(), history))
-}
-
-trait MessageFromEvent {
-    fn message(&self) -> Option<&Message>;
-}
-
-impl MessageFromEvent for FullEvent {
-    fn message(&self) -> Option<&Message> {
-        if let Self::Message { new_message } = self {
-            Some(new_message)
-        } else {
-            None
-        }
-    }
-}
-
-trait ReplyFromMessage {
-    fn get_reply(&self) -> Option<&Message>;
-}
-
-impl ReplyFromMessage for Message {
-    fn get_reply(&self) -> Option<&Message> {
-        self.referenced_message.as_deref()
-    }
 }

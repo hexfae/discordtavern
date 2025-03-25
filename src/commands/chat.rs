@@ -1,11 +1,10 @@
 use crate::{event_handler::EditMessageModal, prelude::*};
 use poise::{
-    execute_modal_on_component_interaction,
+    CreateReply, execute_modal_on_component_interaction,
     serenity_prelude::{
         self as serenity, ComponentInteractionCollector, CreateActionRow, CreateButton,
         CreateEmbed, ReactionType,
     },
-    CreateReply,
 };
 
 #[poise::command(slash_command, prefix_command)]
@@ -27,10 +26,10 @@ pub async fn prata(
     let ctx_id = ctx.id();
     let character_name = character.to_string();
     let avatar = character.avatar.to_string();
-    let components = vec![CreateActionRow::Buttons(vec![CreateButton::new(format!(
-        "{ctx_id}edit"
-    ))
-    .emoji(ReactionType::try_from("✏️".to_string()).expect("valid emoji"))])];
+    let components = vec![CreateActionRow::Buttons(vec![
+        CreateButton::new(format!("{ctx_id}edit"))
+            .emoji(ReactionType::try_from("✏️".to_string()).expect("valid emoji")),
+    ])];
 
     let message = {
         let embed = serenity::CreateEmbed::new()
