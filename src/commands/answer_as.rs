@@ -1,0 +1,441 @@
+use std::time::{Duration, Instant};
+
+use async_openai::error::OpenAIError;
+use futures::StreamExt;
+use poise::{
+    CreateReply, Modal, execute_modal, execute_modal_on_component_interaction,
+    serenity_prelude::{
+        ComponentInteractionCollector, ComponentInteractionDataKind, CreateActionRow, CreateEmbed,
+        CreateInteractionResponse, CreateMessage, CreateSelectMenu, CreateSelectMenuOption,
+        EditMessage,
+    },
+};
+
+use crate::{
+    discord::Data,
+    error::Error,
+    event_handler::{
+        EditMessageModal, create_button_ids, create_buttons, create_initial_message, create_request,
+    },
+    prelude::*,
+};
+
+#[derive(Debug, Clone, Modal)]
+#[name = "Vilken gubbe?"]
+struct CharacterNameModal {
+    #[name = "Namn"]
+    #[placeholder = "Gubbens namn…"]
+    name: String,
+}
+
+#[poise::command(context_menu_command = "Svara som…")]
+#[allow(clippy::too_many_lines)]
+pub async fn svara_som(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
+    ctx.defer_ephemeral().await?;
+    let data = ctx.data();
+    let http = ctx.http();
+    let Some(mut history) = data.history(&msg) else {
+        ctx.reply("Någonting gick fel här! Meddelandet hittades inte i databasen.")
+            .await?;
+        return Ok(());
+    };
+
+    let mut characters = data.characters();
+    characters.truncate(23);
+    let mut chosen_character_name = String::new();
+    let ctx_id = ctx.id();
+
+    {
+        let create_select_menu_options = characters
+            .iter()
+            .map(|character| {
+                CreateSelectMenuOption::new(character.to_string(), character.name.to_string())
+            })
+            .collect();
+        let select_menu = vec![CreateActionRow::SelectMenu(CreateSelectMenu::new(
+            ctx_id.to_string(),
+            serenity::CreateSelectMenuKind::String {
+                options: create_select_menu_options,
+            },
+        ))];
+        dbg!(&select_menu);
+        let msg = CreateReply::new()
+            .content("Var snäll och klicka på nedanstående knapp!")
+            .components(select_menu);
+        let sent = ctx.send(msg).await?;
+
+        'outer: while let Some(interaction) =
+            ComponentInteractionCollector::new(ctx.serenity_context().shard.clone())
+                .filter(move |interaction| {
+                    interaction.data.custom_id.starts_with(&ctx_id.to_string())
+                })
+                .timeout(Duration::from_secs(60 * 60 * 24))
+                .await
+        {
+            if interaction.data.custom_id == ctx_id.to_string() {
+                if let ComponentInteractionDataKind::StringSelect { values } =
+                    &interaction.data.kind
+                {
+                    let selection = values[0].clone();
+                    chosen_character_name = selection;
+                    interaction
+                        .create_response(http, CreateInteractionResponse::Acknowledge)
+                        .await?;
+                    break 'outer;
+                }
+            }
+        }
+        sent.delete(ctx).await?;
+    };
+
+    let Some(new_character) = data.character(&chosen_character_name) else {
+        ctx.say("Gubben kunde inte hittas!").await?;
+        return Ok(());
+    };
+
+    history.character = new_character;
+    history.push_message(history.choices[history.current_page].clone());
+    history.replace_message(6, history.character.greeting.clone());
+
+    let (prev_button_id, next_button_id, pin_button_id, edit_button_id) = create_button_ids(&msg);
+    let (enabled_buttons, disabled_buttons) = create_buttons(&msg);
+    let mut message = create_initial_message(http, &history, &msg).await?;
+    let now = std::time::Instant::now();
+    let request = create_request(history.clone())?;
+    let mut output = String::new();
+    let mut stream = data.ai.chat().create_stream(request).await?;
+    let mut one_second_timer = Instant::now();
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(response) => {
+                for chat_choice in &response.choices {
+                    if let Some(ref content) = chat_choice.delta.content {
+                        output.push_str(content);
+                        if one_second_timer.elapsed() > Duration::from_secs(1) {
+                            let elapsed = format!("{:.1}", now.elapsed().as_secs_f64())
+                                .parse::<f64>()
+                                .expect("valid time taken");
+                            let length = output.len();
+                            let footer = format!("1/1 | tog {elapsed}s | {length}/4096");
+                            message
+                                .edit(
+                                    &http,
+                                    EditMessage::default().embed(
+                                        serenity::CreateEmbed::new()
+                                            .title(history.character.to_string())
+                                            .description(output.clone())
+                                            .thumbnail(history.character.avatar.to_string())
+                                            .footer(serenity::CreateEmbedFooter::new(footer)),
+                                    ),
+                                )
+                                .await?;
+                            one_second_timer = Instant::now();
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                dbg!(&err);
+                if let OpenAIError::StreamError(ref why) = err {
+                    if why == "Stream ended" {
+                        break;
+                    }
+                    output = format!("Någonting gick fel, skyll inte på mig: {err}");
+                    message
+                        .edit(
+                            &http,
+                            EditMessage::default().embed(
+                                serenity::CreateEmbed::new()
+                                    .title(history.character.to_string())
+                                    .description(output.clone())
+                                    .thumbnail(history.character.avatar.to_string())
+                                    .footer(serenity::CreateEmbedFooter::new("1/1")),
+                            ),
+                        )
+                        .await?;
+                }
+            }
+        }
+    }
+    let elapsed = format!("{:.1}", now.elapsed().as_secs_f64())
+        .parse::<f64>()
+        .expect("valid time taken");
+    let length = output.len();
+    let footer = format!("1/1 | tog {elapsed}s | {length}/4096");
+    let name = history.character.to_string();
+    let thumbnail = history.character.avatar.to_string();
+    message
+        .edit(
+            &http,
+            EditMessage::default()
+                .embed(
+                    serenity::CreateEmbed::new()
+                        .title(name.clone())
+                        .description(output.clone())
+                        .thumbnail(thumbnail.clone())
+                        .footer(serenity::CreateEmbedFooter::new(footer.clone())),
+                )
+                .components(enabled_buttons.clone()),
+        )
+        .await?;
+    let super_message = SuperMessage::new_assistant(history.clone().character.name, output.clone());
+    history.reset_choices();
+    history.update(super_message.clone(), message.id, elapsed);
+    data.insert_history(history.clone());
+
+    let mut current_page: usize = 0;
+    while let Some(interaction) =
+        ComponentInteractionCollector::new(ctx.serenity_context().shard.clone())
+            .filter(move |interaction| interaction.data.custom_id.starts_with(&msg.id.to_string()))
+            .timeout(Duration::from_secs(60 * 60 * 24))
+            .await
+    {
+        if interaction.data.custom_id == pin_button_id {
+            let channel_id = msg.channel_id;
+            let character_name = history.character.to_string();
+            let message_content = history.choices[current_page].message.to_string();
+            let avatar = history.character.avatar.to_string();
+
+            let embed = CreateEmbed::new()
+                .title(&character_name)
+                .description(&message_content)
+                .thumbnail(&avatar);
+            let message = CreateMessage::new().embed(embed).reference_message(&msg);
+
+            let pinned_message = channel_id.send_message(http, message).await?;
+
+            pinned_message.pin(http, None).await?;
+
+            interaction
+                .create_response(http, CreateInteractionResponse::Acknowledge)
+                .await?;
+        } else if interaction.data.custom_id == edit_button_id {
+            let footer = format!(
+                "{}/{} | tog {}s | {}/4096",
+                current_page + 1,
+                history.choices.len(),
+                &history.seconds_taken[current_page],
+                history.choices[current_page].message.len(),
+            );
+            let user_name = substitute_name(interaction.clone().user.name);
+            message
+                .edit(
+                    &http,
+                    EditMessage::new()
+                        .embed(
+                            serenity::CreateEmbed::new()
+                                .title(name.clone())
+                                .field(
+                                    "Meddelandet redigeras…",
+                                    format!("Meddelandet håller på att redigeras av {user_name}.",),
+                                    false,
+                                )
+                                .description(history.choices[current_page].message.to_string())
+                                .thumbnail(thumbnail.clone())
+                                .footer(serenity::CreateEmbedFooter::new(footer)),
+                        )
+                        .components(disabled_buttons.clone()),
+                )
+                .await?;
+            let Some(modal) = execute_modal_on_component_interaction::<EditMessageModal>(
+                ctx.serenity_context(),
+                interaction.clone(),
+                None,
+                None,
+            )
+            .await?
+            else {
+                message
+                    .edit(
+                        &http,
+                        EditMessage::new().components(enabled_buttons.clone()),
+                    )
+                    .await?;
+                interaction
+                    .create_response(http, CreateInteractionResponse::Acknowledge)
+                    .await?;
+                continue;
+            };
+
+            history.update_choice(&modal.message, current_page);
+            data.insert_history(history.clone());
+
+            let footer = format!(
+                "{}/{} | tog {}s | {}/4096 (redigerad)",
+                current_page + 1,
+                history.choices.len(),
+                &history.seconds_taken[current_page],
+                modal.message.len(),
+            );
+
+            let history = history.clone();
+            let name = history.character.to_string();
+            let description = history.choices[current_page].message.to_string();
+            let thumbnail = history.character.avatar.to_string();
+            message
+                .edit(
+                    &http,
+                    EditMessage::new()
+                        .embed(
+                            serenity::CreateEmbed::new()
+                                .title(name)
+                                .description(description)
+                                .thumbnail(thumbnail)
+                                .footer(serenity::CreateEmbedFooter::new(footer)),
+                        )
+                        .components(enabled_buttons.clone()),
+                )
+                .await?;
+        } else if interaction.data.custom_id == prev_button_id {
+            interaction.defer(http).await?;
+            current_page = current_page
+                .checked_sub(1)
+                .unwrap_or_else(|| &history.choices.len() - 1);
+            history.current_page = current_page;
+
+            let name = history.character.to_string();
+            let description = history.choices[current_page].message.to_string();
+            let thumbnail = history.character.avatar.to_string();
+            let footer = format!(
+                "{}/{} | tog {}s | {}/4096",
+                current_page + 1,
+                history.clone().choices.len(),
+                &history.clone().seconds_taken[current_page],
+                description.len()
+            );
+
+            message
+                .edit(
+                    &http,
+                    EditMessage::default()
+                        .embed(
+                            serenity::CreateEmbed::new()
+                                .title(name)
+                                .description(description)
+                                .thumbnail(thumbnail)
+                                .footer(serenity::CreateEmbedFooter::new(footer)),
+                        )
+                        .components(enabled_buttons.clone()),
+                )
+                .await?;
+            data.insert_history(history.clone());
+        } else if interaction.data.custom_id == next_button_id {
+            interaction.defer(http).await?;
+            current_page += 1;
+            history.current_page = current_page;
+
+            if current_page >= history.choices.len() {
+                let footer = format!("{}/{}", current_page + 1, history.choices.len() + 1);
+                message
+                    .edit(
+                        &http,
+                        EditMessage::default()
+                            .embed(
+                                serenity::CreateEmbed::new()
+                                    .title(name.clone())
+                                    .description("…")
+                                    .thumbnail(thumbnail.clone())
+                                    .footer(serenity::CreateEmbedFooter::new(footer.clone())),
+                            )
+                            .components(disabled_buttons.clone()),
+                    )
+                    .await?;
+                let now = std::time::Instant::now();
+                let request = create_request(history.clone())?;
+                let mut output = String::new();
+                let mut stream = data.ai.chat().create_stream(request).await?;
+                let mut one_second_timer = Instant::now();
+                while let Some(result) = stream.next().await {
+                    match result {
+                        Ok(response) => {
+                            for chat_choice in &response.choices {
+                                if let Some(ref content) = chat_choice.delta.content {
+                                    output = format!("{output}{content}");
+                                    if one_second_timer.elapsed() > Duration::from_secs(1) {
+                                        let elapsed = format!("{:.1}", now.elapsed().as_secs_f64());
+                                        let footer = format!(
+                                            "{}/{} | tog {}s | {}/4096",
+                                            current_page + 1,
+                                            history.clone().choices.len() + 1,
+                                            elapsed,
+                                            output.len()
+                                        );
+                                        message
+                                            .edit(
+                                                &http,
+                                                EditMessage::default().embed(
+                                                    serenity::CreateEmbed::new()
+                                                        .title(history.character.to_string())
+                                                        .description(output.clone())
+                                                        .thumbnail(
+                                                            history.character.avatar.to_string(),
+                                                        )
+                                                        .footer(serenity::CreateEmbedFooter::new(
+                                                            footer.clone(),
+                                                        )),
+                                                ),
+                                            )
+                                            .await?;
+                                        one_second_timer = Instant::now();
+                                    }
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            if let OpenAIError::StreamError(ref why) = err {
+                                if why == "Stream ended" {
+                                    break;
+                                }
+                                output = format!("Någonting gick fel, skyll inte på mig: {err}");
+                                message
+                                    .edit(
+                                        &http,
+                                        EditMessage::default().embed(
+                                            serenity::CreateEmbed::new()
+                                                .title(history.character.to_string())
+                                                .description(output.clone())
+                                                .thumbnail(history.character.avatar.to_string())
+                                                .footer(serenity::CreateEmbedFooter::new("1/1")),
+                                        ),
+                                    )
+                                    .await?;
+                            }
+                        }
+                    }
+                }
+                let output = SuperMessage::new_assistant(history.clone().character.name, output);
+                let elapsed = format!("{:.1}", now.elapsed().as_secs_f64())
+                    .parse::<f64>()
+                    .expect("valid time taken");
+                history.update(output.clone(), message.id, elapsed);
+            }
+            let footer = format!(
+                "{}/{} | tog {}s | {}/4096",
+                current_page + 1,
+                history.clone().choices.len(),
+                &history.clone().seconds_taken[current_page],
+                output.len()
+            );
+            let name = history.character.to_string();
+            let description = history.choices[current_page].message.to_string();
+            let thumbnail = history.character.avatar.to_string();
+            message
+                .edit(
+                    &http,
+                    EditMessage::default()
+                        .embed(
+                            serenity::CreateEmbed::new()
+                                .title(name)
+                                .description(description)
+                                .thumbnail(thumbnail)
+                                .footer(serenity::CreateEmbedFooter::new(footer)),
+                        )
+                        .components(enabled_buttons.clone()),
+                )
+                .await?;
+            data.insert_history(history.clone());
+        }
+    }
+
+    Ok(())
+}
