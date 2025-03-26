@@ -11,7 +11,8 @@ use std::{
 use tracing::warn;
 
 pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
-    read_to_string("config.ron").map_or_else(
+    let path = std::env::var("CONFIG_FILE").expect("CONFIG_FILE environment variable");
+    read_to_string(path).map_or_else(
         |_| Config::create(),
         |string| match Config::load(string) {
             Ok(config) => config,
@@ -61,7 +62,7 @@ impl Config {
         let try_save = config.save();
         if let Err(why) = try_save {
             warn!("could not save config! {why}");
-        };
+        }
         config
     }
 
@@ -69,7 +70,7 @@ impl Config {
         let config = ron::from_str::<Self>(input.as_ref())?;
         if let Err(why) = config.save() {
             warn!("could not save config! {why}");
-        };
+        }
         Ok(config)
     }
 

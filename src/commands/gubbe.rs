@@ -104,21 +104,20 @@ async fn skapa(
             {
                 let button = CreateButton::new(ctx_id.to_string())
                     .emoji(ReactionType::try_from("✏️").expect("valid emoji"));
-                let component = CreateActionRow::Buttons(vec![button]);
+                let component = CreateActionRow::Buttons(vec![button].into());
                 let reply = CreateReply::default()
                     .content("Var snäll och klicka på nedanstående knapp!")
                     .components(vec![component])
                     .reply(true);
                 ctx.send(reply).await?;
             }
-            while let Some(interaction) =
-                ComponentInteractionCollector::new(ctx.serenity_context().shard.clone())
-                    .filter(move |interaction| {
-                        interaction.data.custom_id.as_str() == ctx_id.to_string()
-                    })
-                    .author_id(ctx.author().id)
-                    .timeout(Duration::from_secs(60 * 60 * 24))
-                    .await
+            while let Some(interaction) = ComponentInteractionCollector::new(ctx.serenity_context())
+                .filter(move |interaction| {
+                    interaction.data.custom_id.as_str() == ctx_id.to_string()
+                })
+                .author_id(ctx.author().id)
+                .timeout(Duration::from_secs(60 * 60 * 24))
+                .await
             {
                 let Some(modal) = execute_modal_on_component_interaction::<CreateCharacterModal>(
                     ctx.serenity_context(),
@@ -166,7 +165,7 @@ async fn ändra(
     };
     if let Some(greeting) = hälsning {
         character.greeting = SuperMessage::new_assistant(namn.clone(), greeting);
-    };
+    }
     if let Some(description) = beskrivning {
         character.description = SuperMessage::new_assistant(namn, description);
     }
