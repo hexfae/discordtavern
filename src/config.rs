@@ -1,24 +1,14 @@
 use crate::prelude::*;
 
 use derive_more::Into;
-use ron::ser::{PrettyConfig, to_string_pretty};
 use serde::{Deserialize, Serialize};
 use serenity::UserId;
-use std::{
-    fs::{read_to_string, write},
-    sync::LazyLock,
-};
-use tracing::warn;
+use std::{fs::read_to_string, sync::LazyLock};
 
 pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
-    let path = std::env::var("CONFIG_FILE").expect("CONFIG_FILE environment variable");
-    read_to_string(path).map_or_else(
-        |_| Config::create(),
-        |string| match Config::load(string) {
-            Ok(config) => config,
-            Err(why) => panic!("{}", why),
-        },
-    )
+    let path = std::env::var("CONFIG_FILE").expect("CONFIG_FILE environment variable existing");
+    let string = read_to_string(path).expect("CONFIG_FILE pointing to a readable file");
+    Config::load(string).expect("CONFIG_FILE pointing to a valid config")
 });
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -53,32 +43,8 @@ pub struct OpenAiModel(pub String);
 pub struct NameSubstitutes(pub Vec<(String, String)>);
 
 impl Config {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn create() -> Self {
-        let config = Self::new();
-        let try_save = config.save();
-        if let Err(why) = try_save {
-            warn!("could not save config! {why}");
-        }
-        config
-    }
-
     fn load(input: impl AsRef<str>) -> Result<Self> {
-        let config = ron::from_str::<Self>(input.as_ref())?;
-        if let Err(why) = config.save() {
-            warn!("could not save config! {why}");
-        }
-        Ok(config)
-    }
-
-    fn save(&self) -> Result<()> {
-        Ok(write(
-            "config.ron",
-            to_string_pretty(self, PrettyConfig::default())?,
-        )?)
+        Ok(ron::from_str::<Self>(input.as_ref())?)
     }
 
     #[inline]
