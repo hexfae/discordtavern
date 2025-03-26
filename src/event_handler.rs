@@ -7,10 +7,20 @@ use async_openai::error::OpenAIError;
 use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionRequestArgs};
 use futures::StreamExt;
 use poise::serenity_prelude::{
-    ComponentInteractionCollector, CreateActionRow, CreateEmbed, CreateInteractionResponse,
-    CreateMessage, EditMessage, FullEvent, Http, Message, ReactionType,
+    ComponentInteractionCollector, Context, CreateActionRow, CreateEmbed,
+    CreateInteractionResponse, CreateMessage, EditMessage, EventHandler, FullEvent, Http, Message,
+    ReactionType, async_trait,
 };
 use poise::{Modal, execute_modal_on_component_interaction};
+
+pub struct Handler;
+
+#[async_trait]
+impl EventHandler for Handler {
+    async fn dispatch(&self, ctx: &Context, event: &FullEvent) {
+        let _ = event_handler(ctx, event).await;
+    }
+}
 
 #[derive(Debug, Clone, Modal)]
 #[name = "Redigera meddelandet"]
@@ -58,12 +68,12 @@ async fn create_initial_message(
 }
 
 #[allow(clippy::too_many_lines)]
-pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Result<()> {
-    let data = ctx.user_data();
+pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
+    let data = ctx.data();
     let Some((new_message, mut history)) = get_chat_message_and_history(event, &data) else {
         return Ok(());
     };
-    let http = &ctx.serenity_context.http;
+    let http = &ctx.http;
     history.push_message(history.choices[history.current_page].clone());
     history.push_message(new_message.clone());
 
@@ -106,7 +116,6 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                 }
             }
             Err(err) => {
-                dbg!(&err);
                 if let OpenAIError::StreamError(ref why) = err {
                     if why == "Stream ended" {
                         break;
@@ -155,16 +164,15 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
     data.insert_history(history.clone());
 
     let mut current_page: usize = 0;
-    while let Some(interaction) =
-        ComponentInteractionCollector::new(ctx.serenity_context.shard.clone())
-            .filter(move |interaction| {
-                interaction
-                    .data
-                    .custom_id
-                    .starts_with(&new_message.id.to_string())
-            })
-            .timeout(Duration::from_secs(60 * 60 * 24))
-            .await
+    while let Some(interaction) = ComponentInteractionCollector::new(ctx)
+        .filter(move |interaction| {
+            interaction
+                .data
+                .custom_id
+                .starts_with(&new_message.id.to_string())
+        })
+        .timeout(Duration::from_secs(60 * 60 * 24))
+        .await
     {
         if interaction.data.custom_id == pin_button_id {
             let channel_id = new_message.channel_id;
@@ -216,7 +224,7 @@ pub async fn event_handler(ctx: FrameworkContext<'_>, event: &FullEvent) -> Resu
                 )
                 .await?;
             let Some(modal) = execute_modal_on_component_interaction::<EditMessageModal>(
-                ctx.serenity_context,
+                ctx,
                 interaction.clone(),
                 None,
                 None,
@@ -442,18 +450,24 @@ fn create_button(
 fn create_buttons(msg: &Message) -> (Vec<CreateActionRow<'static>>, Vec<CreateActionRow<'static>>) {
     let msg_id = msg.id;
     (
-        vec![CreateActionRow::Buttons(vec![
-            create_button('◀', format!("{msg_id}prev"), false),
-            create_button('▶', format!("{msg_id}next"), false),
-            create_button('📌', format!("{msg_id}pin"), false),
-            create_button("✏️", format!("{msg_id}edit"), false),
-        ])],
-        vec![CreateActionRow::Buttons(vec![
-            create_button('◀', format!("{msg_id}prev"), true),
-            create_button('▶', format!("{msg_id}next"), true),
-            create_button('📌', format!("{msg_id}pin"), true),
-            create_button("✏️", format!("{msg_id}edit"), true),
-        ])],
+        vec![CreateActionRow::Buttons(
+            vec![
+                create_button('◀', format!("{msg_id}prev"), false),
+                create_button('▶', format!("{msg_id}next"), false),
+                create_button('📌', format!("{msg_id}pin"), false),
+                create_button("✏️", format!("{msg_id}edit"), false),
+            ]
+            .into(),
+        )],
+        vec![CreateActionRow::Buttons(
+            vec![
+                create_button('◀', format!("{msg_id}prev"), true),
+                create_button('▶', format!("{msg_id}next"), true),
+                create_button('📌', format!("{msg_id}pin"), true),
+                create_button("✏️", format!("{msg_id}edit"), true),
+            ]
+            .into(),
+        )],
     )
 }
 
@@ -470,7 +484,7 @@ trait MessageFromEvent {
 
 impl MessageFromEvent for FullEvent {
     fn message(&self) -> Option<&Message> {
-        if let Self::Message { new_message } = self {
+        if let Self::Message { new_message, .. } = self {
             Some(new_message)
         } else {
             None

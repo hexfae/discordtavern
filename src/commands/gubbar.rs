@@ -37,10 +37,13 @@ pub async fn gubbar(ctx: Context<'_>) -> Result<()> {
             .field("Hälsning", greeting, false)
             .thumbnail(avatar);
 
-        let components = CreateActionRow::Buttons(vec![
-            CreateButton::new(&prev_button_id).emoji('◀'),
-            CreateButton::new(&next_button_id).emoji('▶'),
-        ]);
+        let components = CreateActionRow::Buttons(
+            vec![
+                CreateButton::new(&prev_button_id).emoji('◀'),
+                CreateButton::new(&next_button_id).emoji('▶'),
+            ]
+            .into(),
+        );
 
         CreateReply::default()
             .embed(embed)
@@ -49,7 +52,7 @@ pub async fn gubbar(ctx: Context<'_>) -> Result<()> {
 
     ctx.send(reply).await?;
 
-    while let Some(press) = ComponentInteractionCollector::new(ctx.serenity_context().shard.clone())
+    while let Some(press) = ComponentInteractionCollector::new(ctx.serenity_context())
         .filter(move |press| press.data.custom_id.starts_with(&ctx_id.to_string()))
         .timeout(Duration::from_secs(60 * 60 * 24))
         .await

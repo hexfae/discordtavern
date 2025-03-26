@@ -1,16 +1,14 @@
 #![allow(clippy::unreadable_literal)]
 use crate::commands::tts::läs_upp;
+use crate::commands::{chat::prata, gubbar::gubbar, gubbe::gubbe};
+use crate::event_handler::Handler;
 use crate::prelude::*;
-use crate::{
-    commands::{chat::prata, gubbar::gubbar, gubbe::gubbe},
-    event_handler::event_handler,
-};
 use async_openai::{Client, config::OpenAIConfig};
 use dashmap::DashMap;
-use futures::{Stream, StreamExt};
-use itertools::Itertools;
 use poise::PrefixFrameworkOptions;
-use poise::serenity_prelude::{ActivityData, ActivityType, MessageId};
+use poise::serenity_prelude::{
+    ActivityData, ActivityType, AutocompleteChoice, CreateAutocompleteResponse, MessageId,
+};
 use poise::{
     Framework, FrameworkOptions,
     serenity_prelude::{ClientBuilder, GatewayIntents, Message},
@@ -40,7 +38,7 @@ impl Data {
     }
 
     pub fn characters(&self) -> Vec<Character> {
-        self.characters.iter().map(|c| c.clone()).collect_vec()
+        self.characters.iter().map(|c| c.clone()).collect()
     }
 
     pub fn history(&self, message: &Message) -> Option<History> {
@@ -99,7 +97,13 @@ impl Data {
 }
 
 async fn start_bot(data: Data) -> Result<()> {
-    let bot_token = CONFIG.bot_token();
+    let bot_token = CONFIG.bot_token().0.parse().unwrap_or_else(|_| {
+        panic!(
+            "bot token {} BLESS YOU {:?}",
+            CONFIG.bot_token().as_str(),
+            CONFIG
+        )
+    });
 
     let bot_commands = vec![prata(), gubbe(), gubbar(), läs_upp(), register()];
 
@@ -109,15 +113,15 @@ async fn start_bot(data: Data) -> Result<()> {
             prefix: Some(std::borrow::Cow::Borrowed("+")),
             ..Default::default()
         },
-        event_handler: |ctx, event| Box::pin(event_handler(ctx, event)),
         on_error: |error| Box::pin(error_handler(error)),
         ..Default::default()
     };
 
     let framework = Framework::builder().options(framework_options).build();
 
-    ClientBuilder::new(bot_token.as_str(), GATEWAY_INTENTS)
+    ClientBuilder::new(bot_token, GATEWAY_INTENTS)
         .framework(framework)
+        .event_handler(Handler)
         .activity(ActivityData {
             name: "Heroes of the Storm".parse().expect("invalid str length"),
             kind: ActivityType::Playing,
@@ -150,20 +154,26 @@ async fn error_handler(error: FrameworkError<'_>) {
                 tracing::error!("Error while handling error: {error}");
             }
         }
-    };
+    }
 }
 
 pub async fn autocomplete_character_name<'a>(
     ctx: Context<'_>,
     partial: &'a str,
-) -> impl Stream<Item = String> + 'a {
+) -> CreateAutocompleteResponse<'a> {
     let character_names = ctx
         .data()
         .characters()
         .into_iter()
-        .map(|a| a.name.to_string())
-        .collect_vec();
-    futures::stream::iter(character_names).filter(move |name| {
-        futures::future::ready(name.to_lowercase().starts_with(&partial.to_lowercase()))
-    })
+        .filter(|character| {
+            character
+                .name
+                .to_string()
+                .to_lowercase()
+                .starts_with(&partial.to_lowercase())
+        })
+        .take(25)
+        .map(|character| AutocompleteChoice::new(character.to_string(), character.name.to_string()))
+        .collect::<Vec<AutocompleteChoice>>();
+    CreateAutocompleteResponse::new().set_choices(character_names)
 }

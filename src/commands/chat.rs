@@ -26,10 +26,13 @@ pub async fn prata(
     let ctx_id = ctx.id();
     let character_name = character.to_string();
     let avatar = character.avatar.to_string();
-    let components = vec![CreateActionRow::Buttons(vec![
-        CreateButton::new(format!("{ctx_id}edit"))
-            .emoji(ReactionType::try_from("✏️".to_string()).expect("valid emoji")),
-    ])];
+    let components = vec![CreateActionRow::Buttons(
+        vec![
+            CreateButton::new(format!("{ctx_id}edit"))
+                .emoji(ReactionType::try_from("✏️".to_string()).expect("valid emoji")),
+        ]
+        .into(),
+    )];
 
     let message = {
         let embed = serenity::CreateEmbed::new()
@@ -43,11 +46,10 @@ pub async fn prata(
     let history = character.into_history(message.message().await?.id);
     ctx.data().insert_history(history);
 
-    while let Some(interaction) =
-        ComponentInteractionCollector::new(ctx.serenity_context().shard.clone())
-            .filter(move |interaction| interaction.data.custom_id.starts_with(&ctx_id.to_string()))
-            .timeout(std::time::Duration::from_secs(60 * 60 * 24))
-            .await
+    while let Some(interaction) = ComponentInteractionCollector::new(ctx.serenity_context())
+        .filter(move |interaction| interaction.data.custom_id.starts_with(&ctx_id.to_string()))
+        .timeout(std::time::Duration::from_secs(60 * 60 * 24))
+        .await
     {
         if let Some(modal) = execute_modal_on_component_interaction::<EditMessageModal>(
             ctx.serenity_context(),

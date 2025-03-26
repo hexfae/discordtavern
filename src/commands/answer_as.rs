@@ -58,7 +58,6 @@ pub async fn svara_som(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
                 options: create_select_menu_options,
             },
         ))];
-        dbg!(&select_menu);
         let msg = CreateReply::new()
             .content("Var snäll och klicka på nedanstående knapp!")
             .components(select_menu);
@@ -135,7 +134,6 @@ pub async fn svara_som(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
                 }
             }
             Err(err) => {
-                dbg!(&err);
                 if let OpenAIError::StreamError(ref why) = err {
                     if why == "Stream ended" {
                         break;
