@@ -13,6 +13,7 @@ use poise::{
     Framework, FrameworkOptions,
     serenity_prelude::{ClientBuilder, GatewayIntents, Message},
 };
+use ron::ser::PrettyConfig;
 use std::fs::{read, write};
 use std::sync::Arc;
 
@@ -81,8 +82,9 @@ impl Data {
     }
 
     pub fn save(&self) {
-        let serialized_characters = ron::to_string(&self.characters);
-        let serialized_chats = ron::to_string(&self.chats);
+        let serialized_characters =
+            ron::ser::to_string_pretty(&self.characters, PrettyConfig::new());
+        let serialized_chats = ron::ser::to_string_pretty(&self.chats, PrettyConfig::default());
 
         match (serialized_characters, serialized_chats) {
             (Ok(characters), Ok(chats)) => {
