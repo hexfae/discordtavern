@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crate::discord::Data;
 use crate::prelude::*;
 use async_openai::error::OpenAIError;
-use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionRequestArgs};
+use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionRequestArgs, Role};
 use futures::StreamExt;
 use poise::serenity_prelude::{
     ComponentInteractionCollector, Context, CreateActionRow, CreateEmbed,
@@ -75,7 +75,11 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
     };
     let http = &ctx.http;
     history.push_message(history.choices[history.current_page].clone());
-    history.push_message(new_message.clone());
+    let mut super_message = SuperMessage::from(new_message.clone());
+    if super_message.message.to_lowercase().starts_with("system: ") {
+        super_message.role = Role::System;
+    }
+    history.push_message(super_message);
 
     let (prev_button_id, next_button_id, pin_button_id, edit_button_id) =
         create_button_ids(&new_message);
