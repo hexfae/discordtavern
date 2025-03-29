@@ -30,7 +30,7 @@ pub struct EditMessageModal {
     pub message: String,
 }
 
-fn create_button_ids(msg: &Message) -> (String, String, String, String) {
+pub fn create_button_ids(msg: &Message) -> (String, String, String, String) {
     let msg_id = msg.id;
     (
         format!("{msg_id}prev"),
@@ -40,7 +40,7 @@ fn create_button_ids(msg: &Message) -> (String, String, String, String) {
     )
 }
 
-async fn create_initial_message(
+pub async fn create_initial_message(
     http: &Http,
     history: &History,
     new_message: &Message,
@@ -73,6 +73,9 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
     let Some((new_message, mut history)) = get_chat_message_and_history(event, &data) else {
         return Ok(());
     };
+    if new_message.author.bot() {
+        return Ok(());
+    }
     let http = &ctx.http;
     history.push_message(history.choices[history.current_page].clone());
     let mut super_message = SuperMessage::from(new_message.clone());
@@ -430,7 +433,7 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
     Ok(())
 }
 
-fn create_request(history: History) -> Result<CreateChatCompletionRequest> {
+pub fn create_request(history: History) -> Result<CreateChatCompletionRequest> {
     Ok(CreateChatCompletionRequestArgs::default()
         .model(CONFIG.openai_model())
         .max_tokens(2048_u16)
@@ -451,7 +454,9 @@ fn create_button(
         .disabled(disabled)
 }
 
-fn create_buttons(msg: &Message) -> (Vec<CreateActionRow<'static>>, Vec<CreateActionRow<'static>>) {
+pub fn create_buttons(
+    msg: &Message,
+) -> (Vec<CreateActionRow<'static>>, Vec<CreateActionRow<'static>>) {
     let msg_id = msg.id;
     (
         vec![CreateActionRow::Buttons(
