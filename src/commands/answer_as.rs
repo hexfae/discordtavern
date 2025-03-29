@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use async_openai::error::OpenAIError;
 use futures::StreamExt;
 use poise::{
-    CreateReply, Modal, execute_modal, execute_modal_on_component_interaction,
+    CreateReply, Modal, execute_modal_on_component_interaction,
     serenity_prelude::{
         ComponentInteractionCollector, ComponentInteractionDataKind, CreateActionRow, CreateEmbed,
         CreateInteractionResponse, CreateMessage, CreateSelectMenu, CreateSelectMenuOption,
@@ -12,8 +12,6 @@ use poise::{
 };
 
 use crate::{
-    discord::Data,
-    error::Error,
     event_handler::{
         EditMessageModal, create_button_ids, create_buttons, create_initial_message, create_request,
     },
@@ -64,7 +62,7 @@ pub async fn svara_som(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
         let sent = ctx.send(msg).await?;
 
         'outer: while let Some(interaction) =
-            ComponentInteractionCollector::new(ctx.serenity_context().shard.clone())
+            ComponentInteractionCollector::new(ctx.serenity_context())
                 .filter(move |interaction| {
                     interaction.data.custom_id.starts_with(&ctx_id.to_string())
                 })
@@ -182,11 +180,10 @@ pub async fn svara_som(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
     data.insert_history(history.clone());
 
     let mut current_page: usize = 0;
-    while let Some(interaction) =
-        ComponentInteractionCollector::new(ctx.serenity_context().shard.clone())
-            .filter(move |interaction| interaction.data.custom_id.starts_with(&msg.id.to_string()))
-            .timeout(Duration::from_secs(60 * 60 * 24))
-            .await
+    while let Some(interaction) = ComponentInteractionCollector::new(ctx.serenity_context())
+        .filter(move |interaction| interaction.data.custom_id.starts_with(&msg.id.to_string()))
+        .timeout(Duration::from_secs(60 * 60 * 24))
+        .await
     {
         if interaction.data.custom_id == pin_button_id {
             let channel_id = msg.channel_id;

@@ -194,6 +194,11 @@ impl History {
         self.history.insert(index, message.into());
     }
 
+    pub fn replace_message(&mut self, index: usize, message: impl Into<SuperMessage>) {
+        self.history.remove(index);
+        self.history.insert(index, message.into());
+    }
+
     pub fn push_message(&mut self, message: impl Into<SuperMessage>) {
         self.history.push(message.into());
     }

@@ -1,6 +1,5 @@
 #![allow(clippy::unreadable_literal)]
-use crate::commands::tts::läs_upp;
-use crate::commands::{chat::prata, gubbar::gubbar, gubbe::gubbe};
+use crate::commands::{answer_as::svara_som, chat::prata, gubbar::gubbar, gubbe::gubbe};
 use crate::event_handler::Handler;
 use crate::prelude::*;
 use async_openai::{Client, config::OpenAIConfig};
@@ -107,7 +106,7 @@ async fn start_bot(data: Data) -> Result<()> {
         )
     });
 
-    let bot_commands = vec![prata(), gubbe(), gubbar(), läs_upp(), register()];
+    let bot_commands = vec![prata(), gubbe(), gubbar(), svara_som(), register()];
 
     let framework_options = FrameworkOptions {
         commands: bot_commands,
