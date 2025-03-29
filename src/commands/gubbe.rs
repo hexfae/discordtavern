@@ -1,9 +1,11 @@
 use std::time::Duration;
 
+use miette::Diagnostic;
 use poise::{CreateReply, Modal, execute_modal_on_component_interaction};
 use serenity::{
     ComponentInteractionCollector, CreateActionRow, CreateButton, CreateEmbed, ReactionType,
 };
+use snafu::{ResultExt, Snafu};
 
 use crate::{
     character::{Avatar, Emoji},
@@ -41,6 +43,13 @@ pub async fn gubbe(_: Context<'_>) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Snafu, Diagnostic)]
+pub enum ViewCharacterError {
+    ViewSendMessage {
+        source: poise::serenity_prelude::Error,
+    },
+}
+
 #[poise::command(slash_command, prefix_command)]
 async fn visa(
     ctx: Context<'_>,
@@ -49,11 +58,15 @@ async fn visa(
     namn: String,
 ) -> Result<()> {
     let Some(most_similar_name) = most_similar_name_to(&namn, ctx) else {
-        ctx.say("Gubben hittades inte!").await?;
+        ctx.say("Gubben hittades inte!")
+            .await
+            .context(ViewSendMessageSnafu)?;
         return Ok(());
     };
     let Some(character) = ctx.data().character(&most_similar_name) else {
-        ctx.say("Gubben hittades inte!").await?;
+        ctx.say("Gubben hittades inte!")
+            .await
+            .context(ViewSendMessageSnafu)?;
         return Ok(());
     };
 
@@ -72,9 +85,22 @@ async fn visa(
         CreateReply::default().embed(embed)
     };
 
-    ctx.send(reply).await?;
+    ctx.send(reply).await.context(ViewSendMessageSnafu)?;
 
     Ok(())
+}
+
+#[derive(Debug, Snafu, Diagnostic)]
+pub enum CreateCharacterError {
+    SendMessage {
+        source: poise::serenity_prelude::Error,
+    },
+    Defer {
+        source: poise::serenity_prelude::Error,
+    },
+    Modal {
+        source: poise::serenity_prelude::Error,
+    },
 }
 
 #[poise::command(slash_command, prefix_command)]
@@ -88,15 +114,17 @@ async fn skapa(
 ) -> Result<()> {
     match ctx {
         poise::Context::Application(_) => {
-            ctx.defer_ephemeral().await?;
+            ctx.defer_ephemeral().await.context(DeferSnafu)?;
             let Some(namn) = namn else {
                 ctx.say("Hörrudu, jag tror att du glömde ett namn där!")
-                    .await?;
+                    .await
+                    .context(SendMessageSnafu)?;
                 return Ok(());
             };
             let character = Character::new(namn.clone(), hälsning, beskrivning, emoji, profilbild);
             ctx.say(format!("Hurra! Gubben {character} skapades."))
-                .await?;
+                .await
+                .context(SendMessageSnafu)?;
             ctx.data().insert_character(character);
         }
         poise::Context::Prefix(_) => {
@@ -109,7 +137,7 @@ async fn skapa(
                     .content("Var snäll och klicka på nedanstående knapp!")
                     .components(vec![component])
                     .reply(true);
-                ctx.send(reply).await?;
+                ctx.send(reply).await.context(SendMessageSnafu)?;
             }
             while let Some(interaction) = ComponentInteractionCollector::new(ctx.serenity_context())
                 .filter(move |interaction| {
@@ -125,11 +153,12 @@ async fn skapa(
                     None,
                     None,
                 )
-                .await?
+                .await
+                .context(ModalSnafu)?
                 else {
                     return Ok(());
                 };
-                ctx.defer_ephemeral().await?;
+                ctx.defer_ephemeral().await.context(DeferSnafu)?;
                 let character = Character::new(
                     modal.name,
                     modal.greeting,
@@ -138,12 +167,23 @@ async fn skapa(
                     modal.avatar,
                 );
                 ctx.say(format!("Hurra! Gubben {character} skapades."))
-                    .await?;
+                    .await
+                    .context(SendMessageSnafu)?;
                 ctx.data().insert_character(character);
             }
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Snafu, Diagnostic)]
+pub enum EditCharacterError {
+    EditSendMessage {
+        source: poise::serenity_prelude::Error,
+    },
+    EditDefer {
+        source: poise::serenity_prelude::Error,
+    },
 }
 
 #[poise::command(slash_command)]
@@ -157,10 +197,12 @@ async fn ändra(
     #[description = "Gubbens emoji"] emoji: Option<String>,
     #[description = "Gubbens profilbild (URL)"] profilbild: Option<String>,
 ) -> Result<()> {
-    ctx.defer_ephemeral().await?;
+    ctx.defer_ephemeral().await.context(EditDeferSnafu)?;
     let data = ctx.data();
     let Some(mut character) = data.character(&namn) else {
-        ctx.say("ingen gubbe hittades!").await?;
+        ctx.say("ingen gubbe hittades!")
+            .await
+            .context(EditSendMessageSnafu)?;
         return Ok(());
     };
     if let Some(greeting) = hälsning {
@@ -176,9 +218,20 @@ async fn ändra(
         character.avatar = Avatar::from(avatar);
     }
     ctx.say(format!("Hurra! Gubben {character} ändrades."))
-        .await?;
+        .await
+        .context(EditSendMessageSnafu)?;
     data.insert_character(character);
     Ok(())
+}
+
+#[derive(Debug, Snafu, Diagnostic)]
+pub enum KillCharacterError {
+    KillSendMessage {
+        source: poise::serenity_prelude::Error,
+    },
+    KillDefer {
+        source: poise::serenity_prelude::Error,
+    },
 }
 
 #[poise::command(slash_command, prefix_command)]
@@ -189,13 +242,16 @@ async fn döda(
     #[rest]
     namn: String,
 ) -> Result<()> {
-    ctx.defer_ephemeral().await?;
+    ctx.defer_ephemeral().await.context(KillDeferSnafu)?;
     let Some(character) = ctx.data().character(&namn) else {
-        ctx.say("ingen gubbe hittades!").await?;
+        ctx.say("ingen gubbe hittades!")
+            .await
+            .context(KillSendMessageSnafu)?;
         return Ok(());
     };
     ctx.data().remove_character(&namn);
     ctx.say(format!("Hurra! Gubben {character} dödades."))
-        .await?;
+        .await
+        .context(KillSendMessageSnafu)?;
     Ok(())
 }

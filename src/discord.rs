@@ -4,6 +4,7 @@ use crate::event_handler::Handler;
 use crate::prelude::*;
 use async_openai::{Client, config::OpenAIConfig};
 use dashmap::DashMap;
+use miette::Diagnostic;
 use poise::PrefixFrameworkOptions;
 use poise::serenity_prelude::{
     ActivityData, ActivityType, AutocompleteChoice, CreateAutocompleteResponse, MessageId,
@@ -13,6 +14,7 @@ use poise::{
     serenity_prelude::{ClientBuilder, GatewayIntents, Message},
 };
 use ron::ser::PrettyConfig;
+use snafu::{ResultExt, Snafu};
 use std::fs::{read, write};
 use std::sync::Arc;
 
@@ -137,9 +139,16 @@ async fn start_bot(data: Data) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Snafu, Diagnostic)]
+struct RegisterError {
+    source: poise::serenity_prelude::Error,
+}
+
 #[poise::command(prefix_command)]
 async fn register(ctx: Context<'_>) -> Result<()> {
-    poise::builtins::register_application_commands_buttons(ctx).await?;
+    poise::builtins::register_application_commands_buttons(ctx)
+        .await
+        .context(RegisterSnafu)?;
     Ok(())
 }
 
