@@ -1,6 +1,8 @@
 use std::time::Duration;
 
 use crate::prelude::*;
+use derive_more::Display;
+use miette::Diagnostic;
 use poise::{
     CreateReply,
     serenity_prelude::{
@@ -8,14 +10,41 @@ use poise::{
         CreateInteractionResponse, CreateInteractionResponseMessage,
     },
 };
+use snafu::{ResultExt, Snafu};
+
+#[derive(Debug, Snafu, Diagnostic)]
+enum CharactersError {
+    #[snafu(display("Kunde inte skicka ett meddelande: \"{}\"", message))]
+    #[diagnostic(
+        code(discordtavern::commands::chat::prata),
+        help("Kanske Discord är nere?")
+    )]
+    SendMessage {
+        source: poise::serenity_prelude::Error,
+        message: MessageType,
+    },
+    Respond {
+        source: poise::serenity_prelude::Error,
+    },
+}
+
+#[derive(Debug, Display)]
+enum MessageType {
+    #[display("{_0}")]
+    Text(String),
+    #[display("(Modal)")]
+    Modal,
+}
 
 #[poise::command(slash_command, prefix_command)]
 pub async fn gubbar(ctx: Context<'_>) -> Result<()> {
     let characters = ctx.data().characters();
 
     if characters.is_empty() {
-        ctx.say("Du har inga gubbar, verkar det som! Eller så hittades inga :(")
-            .await?;
+        let message = "Du har inga gubbar, verkar det som! Eller så hittades inga :(".to_owned();
+        ctx.say(&message).await.context(SendMessageSnafu {
+            message: MessageType::Text(message),
+        })?;
         return Ok(());
     }
 
@@ -50,7 +79,9 @@ pub async fn gubbar(ctx: Context<'_>) -> Result<()> {
             .components(vec![components])
     };
 
-    ctx.send(reply).await?;
+    ctx.send(reply).await.context(SendMessageSnafu {
+        message: MessageType::Modal,
+    })?;
 
     while let Some(press) = ComponentInteractionCollector::new(ctx.serenity_context())
         .filter(move |press| press.data.custom_id.starts_with(&ctx_id.to_string()))
@@ -87,7 +118,8 @@ pub async fn gubbar(ctx: Context<'_>) -> Result<()> {
                     CreateInteractionResponseMessage::new().embed(embed),
                 ),
             )
-            .await?;
+            .await
+            .context(RespondSnafu)?;
     }
     Ok(())
 }

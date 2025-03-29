@@ -6,9 +6,10 @@ pub use crate::super_message::AVATAR;
 pub use crate::super_message::History;
 pub use crate::super_message::SuperMessage;
 pub use poise::serenity_prelude as serenity;
-pub type Result<T, E = crate::error::Error> = std::result::Result<T, E>;
-pub type Context<'a> = poise::Context<'a, crate::discord::Data, crate::error::Error>;
-pub type FrameworkError<'a> = poise::FrameworkError<'a, crate::discord::Data, crate::error::Error>;
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Context<'a> = poise::Context<'a, crate::discord::Data, Error>;
+pub type FrameworkError<'a> = poise::FrameworkError<'a, crate::discord::Data, Error>;
 
 use itertools::Itertools;
 use strsim::levenshtein;

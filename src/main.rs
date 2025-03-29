@@ -2,7 +2,6 @@ mod character;
 mod commands;
 mod config;
 mod discord;
-mod error;
 mod event_handler;
 mod prelude;
 mod super_message;

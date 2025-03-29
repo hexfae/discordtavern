@@ -6,12 +6,14 @@ use crate::prelude::*;
 use async_openai::error::OpenAIError;
 use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionRequestArgs, Role};
 use futures::StreamExt;
+use miette::Diagnostic;
 use poise::serenity_prelude::{
     ComponentInteractionCollector, Context, CreateActionRow, CreateEmbed,
     CreateInteractionResponse, CreateMessage, EditMessage, EventHandler, FullEvent, Http, Message,
     ReactionType, async_trait,
 };
 use poise::{Modal, execute_modal_on_component_interaction};
+use snafu::{ResultExt, Snafu};
 
 pub struct Handler;
 
@@ -30,7 +32,35 @@ pub struct EditMessageModal {
     pub message: String,
 }
 
-pub fn create_button_ids(msg: &Message) -> (String, String, String, String) {
+#[derive(Debug, Snafu, Diagnostic)]
+enum EventHandlerError {
+    SendMessage {
+        source: poise::serenity_prelude::Error,
+    },
+    EditMessage {
+        source: poise::serenity_prelude::Error,
+    },
+    PinMessage {
+        source: poise::serenity_prelude::Error,
+    },
+    Defer {
+        source: poise::serenity_prelude::Error,
+    },
+    Modal {
+        source: poise::serenity_prelude::Error,
+    },
+    Acknowledge {
+        source: poise::serenity_prelude::Error,
+    },
+    OpenAiRequest {
+        source: async_openai::error::OpenAIError,
+    },
+    OpenAiStream {
+        source: async_openai::error::OpenAIError,
+    },
+}
+
+fn create_button_ids(msg: &Message) -> (String, String, String, String) {
     let msg_id = msg.id;
     (
         format!("{msg_id}prev"),
@@ -40,11 +70,11 @@ pub fn create_button_ids(msg: &Message) -> (String, String, String, String) {
     )
 }
 
-pub async fn create_initial_message(
+async fn create_initial_message(
     http: &Http,
     history: &History,
     new_message: &Message,
-) -> Result<Message> {
+) -> Result<Message, EventHandlerError> {
     let (_, disabled_buttons) = create_buttons(new_message);
 
     let character_name = history.character.name.to_string();
@@ -61,10 +91,11 @@ pub async fn create_initial_message(
         .components(disabled_buttons.clone())
         .reference_message(new_message);
 
-    Ok(new_message
+    new_message
         .channel_id
         .send_message(http, initial_message)
-        .await?)
+        .await
+        .context(SendMessageSnafu)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -91,7 +122,12 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
     let now = std::time::Instant::now();
     let request = create_request(history.clone())?;
     let mut output = String::new();
-    let mut stream = data.ai.chat().create_stream(request).await?;
+    let mut stream = data
+        .ai
+        .chat()
+        .create_stream(request)
+        .await
+        .context(OpenAiStreamSnafu)?;
     let mut one_second_timer = Instant::now();
     while let Some(result) = stream.next().await {
         match result {
@@ -116,7 +152,8 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                                             .footer(serenity::CreateEmbedFooter::new(footer)),
                                     ),
                                 )
-                                .await?;
+                                .await
+                                .context(EditMessageSnafu)?;
                             one_second_timer = Instant::now();
                         }
                     }
@@ -139,7 +176,8 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                                     .footer(serenity::CreateEmbedFooter::new("1/1")),
                             ),
                         )
-                        .await?;
+                        .await
+                        .context(EditMessageSnafu)?;
                 }
             }
         }
@@ -164,7 +202,8 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                 )
                 .components(enabled_buttons.clone()),
         )
-        .await?;
+        .await
+        .context(EditMessageSnafu)?;
     let super_message = SuperMessage::new_assistant(history.clone().character.name, output.clone());
     history.reset_choices();
     history.update(super_message.clone(), message.id, elapsed);
@@ -195,13 +234,20 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                 .embed(embed)
                 .reference_message(&new_message);
 
-            let pinned_message = channel_id.send_message(http, message).await?;
+            let pinned_message = channel_id
+                .send_message(http, message)
+                .await
+                .context(SendMessageSnafu)?;
 
-            pinned_message.pin(http, None).await?;
+            pinned_message
+                .pin(http, None)
+                .await
+                .context(PinMessageSnafu)?;
 
             interaction
                 .create_response(http, CreateInteractionResponse::Acknowledge)
-                .await?;
+                .await
+                .context(AcknowledgeSnafu)?;
         } else if interaction.data.custom_id == edit_button_id {
             let footer = format!(
                 "{}/{} | tog {}s | {}/4096",
@@ -229,24 +275,28 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                         )
                         .components(disabled_buttons.clone()),
                 )
-                .await?;
+                .await
+                .context(EditMessageSnafu)?;
             let Some(modal) = execute_modal_on_component_interaction::<EditMessageModal>(
                 ctx,
                 interaction.clone(),
                 None,
                 None,
             )
-            .await?
+            .await
+            .context(ModalSnafu)?
             else {
                 message
                     .edit(
                         &http,
                         EditMessage::new().components(enabled_buttons.clone()),
                     )
-                    .await?;
+                    .await
+                    .context(EditMessageSnafu)?;
                 interaction
                     .create_response(http, CreateInteractionResponse::Acknowledge)
-                    .await?;
+                    .await
+                    .context(AcknowledgeSnafu)?;
                 continue;
             };
 
@@ -278,9 +328,10 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                         )
                         .components(enabled_buttons.clone()),
                 )
-                .await?;
+                .await
+                .context(EditMessageSnafu)?;
         } else if interaction.data.custom_id == prev_button_id {
-            interaction.defer(http).await?;
+            interaction.defer(http).await.context(DeferSnafu)?;
             current_page = current_page
                 .checked_sub(1)
                 .unwrap_or_else(|| &history.choices.len() - 1);
@@ -310,10 +361,11 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                         )
                         .components(enabled_buttons.clone()),
                 )
-                .await?;
+                .await
+                .context(DeferSnafu)?;
             data.insert_history(history.clone());
         } else if interaction.data.custom_id == next_button_id {
-            interaction.defer(http).await?;
+            interaction.defer(http).await.context(DeferSnafu)?;
             current_page += 1;
             history.current_page = current_page;
 
@@ -332,11 +384,17 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                             )
                             .components(disabled_buttons.clone()),
                     )
-                    .await?;
+                    .await
+                    .context(EditMessageSnafu)?;
                 let now = std::time::Instant::now();
                 let request = create_request(history.clone())?;
                 let mut output = String::new();
-                let mut stream = data.ai.chat().create_stream(request).await?;
+                let mut stream = data
+                    .ai
+                    .chat()
+                    .create_stream(request)
+                    .await
+                    .context(OpenAiStreamSnafu)?;
                 let mut one_second_timer = Instant::now();
                 while let Some(result) = stream.next().await {
                     match result {
@@ -368,7 +426,8 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                                                         )),
                                                 ),
                                             )
-                                            .await?;
+                                            .await
+                                            .context(EditMessageSnafu)?;
                                         one_second_timer = Instant::now();
                                     }
                                 }
@@ -391,7 +450,8 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                                                 .footer(serenity::CreateEmbedFooter::new("1/1")),
                                         ),
                                     )
-                                    .await?;
+                                    .await
+                                    .context(EditMessageSnafu)?;
                             }
                         }
                     }
@@ -425,7 +485,8 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                         )
                         .components(enabled_buttons.clone()),
                 )
-                .await?;
+                .await
+                .context(EditMessageSnafu)?;
             data.insert_history(history.clone());
         }
     }
@@ -433,15 +494,16 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
     Ok(())
 }
 
-pub fn create_request(history: History) -> Result<CreateChatCompletionRequest> {
-    Ok(CreateChatCompletionRequestArgs::default()
+fn create_request(history: History) -> Result<CreateChatCompletionRequest, EventHandlerError> {
+    CreateChatCompletionRequestArgs::default()
         .model(CONFIG.openai_model())
         .max_tokens(2048_u16)
         .temperature(1.3)
         .frequency_penalty(0.5)
         .presence_penalty(0.5)
         .messages(history)
-        .build()?)
+        .build()
+        .context(OpenAiRequestSnafu)
 }
 
 fn create_button(
@@ -454,9 +516,7 @@ fn create_button(
         .disabled(disabled)
 }
 
-pub fn create_buttons(
-    msg: &Message,
-) -> (Vec<CreateActionRow<'static>>, Vec<CreateActionRow<'static>>) {
+fn create_buttons(msg: &Message) -> (Vec<CreateActionRow<'static>>, Vec<CreateActionRow<'static>>) {
     let msg_id = msg.id;
     (
         vec![CreateActionRow::Buttons(
