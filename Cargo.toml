@@ -1,6 +1,6 @@
 [package]
 name = "discordtavern"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2024"
 
 [dependencies]
@@ -8,12 +8,20 @@ async-openai = "0.28.0"
 base64 = "0.22.1"
 bon = "3.5.1"
 dashmap = { version = "7.0.0-rc2", features = ["serde"] }
-derive_more = { version = "2.0.1", features = ["display", "into", "as_ref", "from"] }
+derive_more = { version = "2.0.1", features = [
+    "display",
+    "into",
+    "as_ref",
+    "from",
+] }
 futures = "0.3.31"
 itertools = "0.14.0"
 miette = { version = "7.5.0", features = ["fancy"] }
 poise = { git = "https://github.com/serenity-rs/poise.git", branch = "serenity-next" }
-reqwest = { version = "0.12.15", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12.15", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
 ron = "0.9.0"
 serde = { version = "1.0.219", features = ["derive"] }
 snafu = "0.8.5"
@@ -28,7 +36,7 @@ unsafe_code = "forbid"
 [lints.clippy]
 enum_glob_use = "deny"
 pedantic = { level = "deny", priority = -1 }
-nursery =  { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
 unwrap_used = "deny"
 
 [profile.release]

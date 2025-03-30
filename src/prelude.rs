@@ -1,10 +1,10 @@
 pub use crate::character::Character;
 pub use crate::config::CONFIG;
-pub use crate::config::substitute_name;
 pub use crate::discord::autocomplete_character_name;
 pub use crate::super_message::AVATAR;
 pub use crate::super_message::History;
 pub use crate::super_message::SuperMessage;
+pub use crate::super_message::TruncateMiddle;
 pub use poise::serenity_prelude as serenity;
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -25,4 +25,12 @@ pub fn most_similar_name_to(input: impl AsRef<str>, ctx: Context<'_>) -> Option<
         .collect_vec()
         .first()
         .cloned()
+}
+
+pub fn substitute_name(input: impl AsRef<str>) -> String {
+    CONFIG
+        .name_substitutes()
+        .iter()
+        .find(|(from, _)| input.as_ref() == from)
+        .map_or_else(|| "User".into(), |(_, to)| to.into())
 }

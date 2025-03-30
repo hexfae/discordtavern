@@ -71,7 +71,9 @@ pub async fn svara_som(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
     };
 
     let mut characters = data.characters();
-    characters.truncate(23);
+    characters.sort();
+    characters.reverse();
+    characters.truncate(25);
     let mut chosen_character_name = String::new();
     let ctx_id = ctx.id();
 
@@ -127,7 +129,7 @@ pub async fn svara_som(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
 
     history.character = new_character;
     history.push_message(history.choices[history.current_page].clone());
-    history.replace_message(6, history.character.greeting.clone());
+    history.replace_message(6, history.character.description.clone());
 
     let mut message = create_initial_message(http, &history, &msg).await?;
     let (prev_button_id, next_button_id, pin_button_id, edit_button_id) =

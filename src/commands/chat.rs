@@ -91,7 +91,7 @@ pub async fn prata(
     let sent_message = {
         let embed = serenity::CreateEmbed::new()
             .title(&character_name)
-            .description(character.greeting.to_string())
+            .description(character.greeting.message.clone())
             .thumbnail(&avatar);
         ctx.send(CreateReply::default().embed(embed).components(&components))
             .await

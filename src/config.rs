@@ -1,8 +1,8 @@
 use crate::prelude::*;
 
 use derive_more::Into;
+use poise::serenity_prelude::ChannelId;
 use serde::{Deserialize, Serialize};
-use serenity::UserId;
 use std::{fs::read_to_string, sync::LazyLock};
 
 pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
@@ -14,8 +14,6 @@ pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
-    bot_id: UserId,
-    #[serde(default)]
     bot_token: BotToken,
     #[serde(default)]
     openai_url: OpenAiUrl,
@@ -25,6 +23,8 @@ pub struct Config {
     openai_model: OpenAiModel,
     #[serde(default)]
     name_substitutes: NameSubstitutes,
+    #[serde(default)]
+    log_channel: ChannelId,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Into)]
@@ -47,34 +47,32 @@ impl Config {
         Ok(ron::from_str::<Self>(input.as_ref())?)
     }
 
-    #[inline]
-    pub const fn bot_id(&self) -> UserId {
-        self.bot_id
+    pub fn bot_token(&self) -> String {
+        self.bot_token.0.clone()
     }
 
-    #[inline]
-    pub fn bot_token(&self) -> BotToken {
-        self.bot_token.clone()
+    pub fn openai_url(&self) -> String {
+        self.openai_url.0.clone()
     }
 
-    #[inline]
-    pub fn openai_url(&self) -> OpenAiUrl {
-        self.openai_url.clone()
+    pub fn openai_key(&self) -> String {
+        self.openai_key.0.clone()
     }
 
-    #[inline]
-    pub fn openai_key(&self) -> OpenAiKey {
-        self.openai_key.clone()
+    pub fn openai_model(&self) -> String {
+        self.openai_model.0.clone()
     }
 
-    #[inline]
-    pub fn openai_model(&self) -> OpenAiModel {
-        self.openai_model.clone()
+    pub fn name_substitutes(&self) -> Vec<(String, String)> {
+        self.name_substitutes.0.clone()
+    }
+
+    pub const fn log_channel(&self) -> ChannelId {
+        self.log_channel
     }
 }
 
 impl BotToken {
-    #[allow(clippy::missing_const_for_fn)] // no it can't
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -90,13 +88,4 @@ impl Default for OpenAiModel {
     fn default() -> Self {
         Self("gpt-4o-mini".into())
     }
-}
-
-pub fn substitute_name(input: impl AsRef<str>) -> String {
-    CONFIG
-        .name_substitutes
-        .0
-        .iter()
-        .find(|(from, _)| input.as_ref() == from)
-        .map_or_else(|| "User".into(), |(_, to)| to.into())
 }
