@@ -3,208 +3,64 @@ use std::time::{Duration, Instant};
 
 use crate::discord::Data;
 use crate::prelude::*;
+use async_openai::Client;
+use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
-use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionRequestArgs, Role};
+use async_openai::types::{CreateChatCompletionRequest, CreateChatCompletionRequestArgs};
 use futures::StreamExt;
 use miette::Diagnostic;
 use poise::serenity_prelude::{
-    ComponentInteractionCollector, Context, CreateActionRow, CreateEmbed,
-    CreateInteractionResponse, CreateMessage, EditMessage, EventHandler, FullEvent, Http, Message,
-    ReactionType, async_trait,
+    ComponentInteractionCollector, Context, CreateActionRow, CreateEmbed, CreateEmbedAuthor,
+    CreateEmbedFooter, CreateInteractionResponse, CreateMessage, EditMessage, EventHandler,
+    FullEvent, Http, Mentionable, Message, ReactionType, async_trait,
 };
 use poise::{Modal, execute_modal_on_component_interaction};
 use snafu::{ResultExt, Snafu};
-
-pub struct Handler;
-
-#[async_trait]
-impl EventHandler for Handler {
-    async fn dispatch(&self, ctx: &Context, event: &FullEvent) {
-        let _ = event_handler(ctx, event).await;
-    }
-}
-
-#[derive(Debug, Clone, Modal)]
-#[name = "Redigera meddelandet"]
-pub struct EditMessageModal {
-    #[name = "Innehåll"]
-    #[placeholder = "Meddelandets innehåll…"]
-    pub message: String,
-}
-
-#[derive(Debug, Snafu, Diagnostic)]
-enum EventHandlerError {
-    SendMessage {
-        source: poise::serenity_prelude::Error,
-    },
-    EditMessage {
-        source: poise::serenity_prelude::Error,
-    },
-    PinMessage {
-        source: poise::serenity_prelude::Error,
-    },
-    Defer {
-        source: poise::serenity_prelude::Error,
-    },
-    Modal {
-        source: poise::serenity_prelude::Error,
-    },
-    Acknowledge {
-        source: poise::serenity_prelude::Error,
-    },
-    OpenAiRequest {
-        source: async_openai::error::OpenAIError,
-    },
-    OpenAiStream {
-        source: async_openai::error::OpenAIError,
-    },
-}
-
-fn create_button_ids(msg: &Message) -> (String, String, String, String) {
-    let msg_id = msg.id;
-    (
-        format!("{msg_id}prev"),
-        format!("{msg_id}next"),
-        format!("{msg_id}pin"),
-        format!("{msg_id}edit"),
-    )
-}
-
-async fn create_initial_message(
-    http: &Http,
-    history: &History,
-    new_message: &Message,
-) -> Result<Message, EventHandlerError> {
-    let (_, disabled_buttons) = create_buttons(new_message);
-
-    let character_name = history.character.name.to_string();
-    let character_avatar = history.character.avatar.to_string();
-
-    let initial_embed = serenity::CreateEmbed::new()
-        .title(character_name)
-        .description("…")
-        .thumbnail(character_avatar)
-        .footer(serenity::CreateEmbedFooter::new("1/1"));
-
-    let initial_message = CreateMessage::default()
-        .embed(initial_embed)
-        .components(disabled_buttons.clone())
-        .reference_message(new_message);
-
-    new_message
-        .channel_id
-        .send_message(http, initial_message)
-        .await
-        .context(SendMessageSnafu)
-}
+use tracing::{info, instrument, warn};
 
 #[allow(clippy::too_many_lines)]
-pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
-    let data = ctx.data();
-    let Some((new_message, mut history)) = get_chat_message_and_history(event, &data) else {
-        return Ok(());
-    };
-    if new_message.author.bot() {
-        return Ok(());
-    }
+#[instrument(skip_all)]
+pub async fn event_handler(
+    ctx: &Context,
+    new_message: Message,
+    mut history: History,
+) -> Result<()> {
+    let data = ctx.data::<Data>();
     let http = &ctx.http;
+    let super_message = SuperMessage::from(new_message.clone());
+
     history.push_message(history.choices[history.current_page].clone());
-    let mut super_message = SuperMessage::from(new_message.clone());
-    if super_message.message.to_lowercase().starts_with("system: ") {
-        super_message.role = Role::System;
-    }
+    let log_message = log_user_response(http, &new_message, &super_message, &history).await?;
     history.push_message(super_message);
 
     let (prev_button_id, next_button_id, pin_button_id, edit_button_id) =
         create_button_ids(&new_message);
     let (enabled_buttons, disabled_buttons) = create_buttons(&new_message);
     let mut message = create_initial_message(http, &history, &new_message).await?;
-    let now = std::time::Instant::now();
     let request = create_request(history.clone())?;
-    let mut output = String::new();
-    let mut stream = data
-        .ai
-        .chat()
-        .create_stream(request)
-        .await
-        .context(OpenAiStreamSnafu)?;
-    let mut one_second_timer = Instant::now();
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(response) => {
-                for chat_choice in &response.choices {
-                    if let Some(ref content) = chat_choice.delta.content {
-                        output.push_str(content);
-                        if one_second_timer.elapsed() > Duration::from_secs(1) {
-                            let elapsed = format!("{:.1}", now.elapsed().as_secs_f64())
-                                .parse::<f64>()
-                                .expect("valid time taken");
-                            let length = output.len();
-                            let footer = format!("1/1 | tog {elapsed}s | {length}/4096");
-                            message
-                                .edit(
-                                    &http,
-                                    EditMessage::default().embed(
-                                        serenity::CreateEmbed::new()
-                                            .title(history.character.to_string())
-                                            .description(output.clone())
-                                            .thumbnail(history.character.avatar.to_string())
-                                            .footer(serenity::CreateEmbedFooter::new(footer)),
-                                    ),
-                                )
-                                .await
-                                .context(EditMessageSnafu)?;
-                            one_second_timer = Instant::now();
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                if let OpenAIError::StreamError(ref why) = err {
-                    if why == "Stream ended" {
-                        break;
-                    }
-                    output = format!("Någonting gick fel, skyll inte på mig: {err}");
-                    message
-                        .edit(
-                            &http,
-                            EditMessage::default().embed(
-                                serenity::CreateEmbed::new()
-                                    .title(history.character.to_string())
-                                    .description(output.clone())
-                                    .thumbnail(history.character.avatar.to_string())
-                                    .footer(serenity::CreateEmbedFooter::new("1/1")),
-                            ),
-                        )
-                        .await
-                        .context(EditMessageSnafu)?;
-                }
-            }
-        }
-    }
-    let elapsed = format!("{:.1}", now.elapsed().as_secs_f64())
-        .parse::<f64>()
-        .expect("valid time taken");
-    let length = output.len();
-    let footer = format!("1/1 | tog {elapsed}s | {length}/4096");
-    let name = history.character.to_string();
-    let thumbnail = history.character.avatar.to_string();
-    message
-        .edit(
-            &http,
-            EditMessage::default()
-                .embed(
-                    serenity::CreateEmbed::new()
-                        .title(name.clone())
-                        .description(output.clone())
-                        .thumbnail(thumbnail.clone())
-                        .footer(serenity::CreateEmbedFooter::new(footer.clone())),
-                )
-                .components(enabled_buttons.clone()),
-        )
-        .await
-        .context(EditMessageSnafu)?;
-    let super_message = SuperMessage::new_assistant(history.clone().character.name, output.clone());
+
+    let (response, elapsed) =
+        stream_response_edit_message(http, &data.ai, request, &mut message, &history).await?;
+    let super_message =
+        SuperMessage::new_assistant(history.clone().character.name, response.clone());
+    finish_response_edit_message(
+        http,
+        elapsed,
+        enabled_buttons.clone(),
+        super_message.clone(),
+        &history,
+        &mut message,
+    )
+    .await?;
+
+    log_bot_response(
+        http,
+        log_message,
+        &history.character,
+        &super_message,
+        elapsed,
+    )
+    .await?;
     history.reset_choices();
     history.update(super_message.clone(), message.id, elapsed);
     data.insert_history(history.clone());
@@ -257,6 +113,8 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                 history.choices[current_page].message.len(),
             );
             let user_name = substitute_name(interaction.clone().user.name);
+            let name = history.character.to_string();
+            let thumbnail = history.character.avatar.to_string();
             message
                 .edit(
                     &http,
@@ -371,6 +229,9 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
 
             if current_page >= history.choices.len() {
                 let footer = format!("{}/{}", current_page + 1, history.choices.len() + 1);
+                let name = history.character.to_string();
+                let thumbnail = history.character.avatar.to_string();
+
                 message
                     .edit(
                         &http,
@@ -403,7 +264,7 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                                 if let Some(ref content) = chat_choice.delta.content {
                                     output = format!("{output}{content}");
                                     if one_second_timer.elapsed() > Duration::from_secs(1) {
-                                        let elapsed = format!("{:.1}", now.elapsed().as_secs_f64());
+                                        let elapsed = now.elapsed().as_secs_f64().to_one_decimal();
                                         let footer = format!(
                                             "{}/{} | tog {}s | {}/4096",
                                             current_page + 1,
@@ -457,9 +318,7 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                     }
                 }
                 let output = SuperMessage::new_assistant(history.clone().character.name, output);
-                let elapsed = format!("{:.1}", now.elapsed().as_secs_f64())
-                    .parse::<f64>()
-                    .expect("valid time taken");
+                let elapsed = now.elapsed().as_secs_f64().to_one_decimal();
                 history.update(output.clone(), message.id, elapsed);
             }
             let footer = format!(
@@ -467,7 +326,7 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
                 current_page + 1,
                 history.clone().choices.len(),
                 &history.clone().seconds_taken[current_page],
-                output.len()
+                response.len()
             );
             let name = history.character.to_string();
             let description = history.choices[current_page].message.to_string();
@@ -492,6 +351,221 @@ pub async fn event_handler(ctx: &Context, event: &FullEvent) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[derive(Debug, Snafu, Diagnostic)]
+enum EventHandlerError {
+    SendMessage {
+        source: poise::serenity_prelude::Error,
+    },
+    EditMessage {
+        source: poise::serenity_prelude::Error,
+    },
+    PinMessage {
+        source: poise::serenity_prelude::Error,
+    },
+    Defer {
+        source: poise::serenity_prelude::Error,
+    },
+    Modal {
+        source: poise::serenity_prelude::Error,
+    },
+    Acknowledge {
+        source: poise::serenity_prelude::Error,
+    },
+    OpenAiRequest {
+        source: async_openai::error::OpenAIError,
+    },
+    OpenAiStream {
+        source: async_openai::error::OpenAIError,
+    },
+}
+
+pub struct Handler;
+
+#[async_trait]
+impl EventHandler for Handler {
+    async fn dispatch(&self, ctx: &Context, event: &FullEvent) {
+        let Some(message) = event.message() else {
+            return;
+        };
+        if message.author.bot() {
+            return;
+        }
+        let Some(history) = message.history(&ctx.data()) else {
+            return;
+        };
+        let mention = message.author.mention();
+        if let Err(why) = event_handler(ctx, message, history).await {
+            warn!("Error in event handler: {why}");
+            let message = format!("{mention} Någonting gick fel där: {why}");
+            if let Err(why) = CONFIG.log_channel().say(&ctx.http, message).await {
+                warn!("Error logging event handler error in Discord: {why}");
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Modal)]
+#[name = "Redigera meddelandet"]
+pub struct EditMessageModal {
+    #[name = "Innehåll"]
+    #[placeholder = "Meddelandets innehåll…"]
+    pub message: String,
+}
+
+async fn finish_response_edit_message(
+    http: &Http,
+    elapsed: f64,
+    enabled_buttons: Vec<CreateActionRow<'static>>,
+    super_message: SuperMessage,
+    history: &History,
+    message: &mut Message,
+) -> Result<()> {
+    let length = super_message.message.len();
+    let footer = format!("1/1 | tar {elapsed}s | {length}/4096");
+    let name = history.character.to_string();
+    let thumbnail = history.character.avatar.to_string();
+    message
+        .edit(
+            &http,
+            EditMessage::default()
+                .embed(
+                    serenity::CreateEmbed::new()
+                        .title(name.clone())
+                        .description(super_message.message)
+                        .thumbnail(thumbnail.clone())
+                        .footer(serenity::CreateEmbedFooter::new(footer.clone())),
+                )
+                .components(enabled_buttons),
+        )
+        .await
+        .context(EditMessageSnafu)?;
+    Ok(())
+}
+
+async fn stream_response_edit_message(
+    http: &Http,
+    client: &Client<OpenAIConfig>,
+    request: CreateChatCompletionRequest,
+    message: &mut Message,
+    history: &History,
+) -> Result<(String, f64)> {
+    let now = Instant::now();
+    let mut output = String::new();
+    let mut one_second_timer = Instant::now();
+    let mut stream = client
+        .chat()
+        .create_stream(request)
+        .await
+        .context(OpenAiStreamSnafu)?;
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(response) => {
+                for chat_choice in &response.choices {
+                    if let Some(ref content) = chat_choice.delta.content {
+                        output.push_str(content);
+                        if one_second_timer.elapsed() > Duration::from_secs(1) {
+                            let elapsed = now.elapsed().as_secs_f64().to_one_decimal();
+                            let length = output.len();
+                            let footer = format!("1/1 | tog {elapsed}s | {length}/4096");
+                            message
+                                .edit(
+                                    &http,
+                                    EditMessage::default().embed(
+                                        CreateEmbed::new()
+                                            .title(history.character.to_string())
+                                            .description(output.clone())
+                                            .thumbnail(history.character.avatar.to_string())
+                                            .footer(CreateEmbedFooter::new(footer)),
+                                    ),
+                                )
+                                .await
+                                .context(EditMessageSnafu)?;
+                            one_second_timer = Instant::now();
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                if let OpenAIError::StreamError(ref why) = err {
+                    if why == "Stream ended" {
+                        break;
+                    }
+                    output = format!("Någonting gick fel, skyll inte på mig: {err}");
+                    message
+                        .edit(
+                            &http,
+                            EditMessage::default().embed(
+                                serenity::CreateEmbed::new()
+                                    .title(history.character.to_string())
+                                    .description(output.clone())
+                                    .thumbnail(history.character.avatar.to_string())
+                                    .footer(serenity::CreateEmbedFooter::new("1/1")),
+                            ),
+                        )
+                        .await
+                        .context(EditMessageSnafu)?;
+                }
+            }
+        }
+    }
+    Ok((output, now.elapsed().as_secs_f64().to_one_decimal()))
+}
+
+async fn log_user_response(
+    http: &Http,
+    user_response: &Message,
+    super_user_response: &SuperMessage,
+    history: &History,
+) -> Result<Message> {
+    let truncated_message = super_user_response.message.truncate_middle();
+    let author = &super_user_response.author;
+    let character = history.character.to_string();
+
+    info!("New message from {author} to {character}.\n👤 {truncated_message}");
+    info!("History:\n{history}");
+    info!("Frågar roboten efter ett svar...");
+
+    let author = format!("Nytt meddelande från {author} till {character}");
+    let embed_author = match user_response.author.avatar_url() {
+        Some(icon_url) => CreateEmbedAuthor::new(author).icon_url(icon_url),
+        None => CreateEmbedAuthor::new(author),
+    };
+    let footer = CreateEmbedFooter::new("Frågar roboten efter ett svar…");
+    let embed = CreateEmbed::new()
+        .author(embed_author)
+        .title("Historia")
+        .description(history.to_string())
+        .field("Meddelande", format!("👤 {truncated_message}"), false)
+        .footer(footer);
+    let message = CreateMessage::new().embed(embed);
+    Ok(CONFIG.log_channel().send_message(http, message).await?)
+}
+
+async fn log_bot_response(
+    http: &Http,
+    log_message: Message,
+    character: &Character,
+    bot_response: &SuperMessage,
+    elapsed: f64,
+) -> Result<Message> {
+    let truncated_message = bot_response.message.truncate_middle();
+
+    info!("New response from {character}.\n🤖 {truncated_message}");
+
+    let author = format!("Nytt svar från {character}");
+    let embed_author = CreateEmbedAuthor::new(author).icon_url(character.avatar.to_string());
+    let footer = CreateEmbedFooter::new(format!("Tog {elapsed} sekunder."));
+    let embed = CreateEmbed::new()
+        .author(embed_author)
+        .description(truncated_message)
+        .footer(footer);
+    let message = CreateMessage::new()
+        .embed(embed)
+        .reference_message(&log_message);
+
+    Ok(CONFIG.log_channel().send_message(http, message).await?)
 }
 
 fn create_request(history: History) -> Result<CreateChatCompletionRequest, EventHandlerError> {
@@ -540,33 +614,85 @@ fn create_buttons(msg: &Message) -> (Vec<CreateActionRow<'static>>, Vec<CreateAc
     )
 }
 
-fn get_chat_message_and_history(event: &FullEvent, data: &Arc<Data>) -> Option<(Message, History)> {
-    let message = event.message()?;
-    let reply = message.get_reply()?;
-    let history = data.history(reply)?;
-    Some((message.to_owned(), history))
+fn create_button_ids(msg: &Message) -> (String, String, String, String) {
+    let msg_id = msg.id;
+    (
+        format!("{msg_id}prev"),
+        format!("{msg_id}next"),
+        format!("{msg_id}pin"),
+        format!("{msg_id}edit"),
+    )
+}
+
+async fn create_initial_message(
+    http: &Http,
+    history: &History,
+    new_message: &Message,
+) -> Result<Message, EventHandlerError> {
+    let (_, disabled_buttons) = create_buttons(new_message);
+
+    let character_name = history.character.name.to_string();
+    let character_avatar = history.character.avatar.to_string();
+
+    let initial_embed = serenity::CreateEmbed::new()
+        .title(character_name)
+        .description("…")
+        .thumbnail(character_avatar)
+        .footer(serenity::CreateEmbedFooter::new("1/1"));
+
+    let initial_message = CreateMessage::default()
+        .embed(initial_embed)
+        .components(disabled_buttons.clone())
+        .reference_message(new_message);
+
+    new_message
+        .channel_id
+        .send_message(http, initial_message)
+        .await
+        .context(SendMessageSnafu)
+}
+
+trait ToOneDecimal {
+    fn to_one_decimal(self) -> f64;
+}
+
+impl ToOneDecimal for f64 {
+    fn to_one_decimal(self) -> f64 {
+        (self * 10.0).floor() / 10.0
+    }
 }
 
 trait MessageFromEvent {
-    fn message(&self) -> Option<&Message>;
-}
-
-impl MessageFromEvent for FullEvent {
-    fn message(&self) -> Option<&Message> {
-        if let Self::Message { new_message, .. } = self {
-            Some(new_message)
-        } else {
-            None
-        }
-    }
+    fn message(&self) -> Option<Message>;
 }
 
 trait ReplyFromMessage {
     fn get_reply(&self) -> Option<&Message>;
 }
 
+trait HistoryFromMessage {
+    fn history(&self, data: &Arc<Data>) -> Option<History>;
+}
+
+impl MessageFromEvent for FullEvent {
+    fn message(&self) -> Option<Message> {
+        if let Self::Message { new_message, .. } = self {
+            Some(new_message.to_owned())
+        } else {
+            None
+        }
+    }
+}
+
 impl ReplyFromMessage for Message {
     fn get_reply(&self) -> Option<&Message> {
         self.referenced_message.as_deref()
+    }
+}
+
+impl HistoryFromMessage for Message {
+    fn history(&self, data: &Arc<Data>) -> Option<History> {
+        let reply = self.get_reply()?;
+        data.history(reply)
     }
 }

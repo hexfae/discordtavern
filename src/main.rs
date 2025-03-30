@@ -4,6 +4,7 @@ mod config;
 mod discord;
 mod event_handler;
 mod prelude;
+mod statistics;
 mod super_message;
 
 #[tokio::main]

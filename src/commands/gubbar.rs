@@ -56,8 +56,8 @@ pub async fn gubbar(ctx: Context<'_>) -> Result<()> {
     let reply = {
         let character = &characters[current_page];
         let name = character.to_string();
-        let greeting = character.greeting.to_string();
-        let description = character.description.to_string();
+        let greeting = &character.greeting.message;
+        let description = &character.description.message;
         let avatar = character.avatar.to_string();
 
         let embed = CreateEmbed::default()
@@ -101,8 +101,8 @@ pub async fn gubbar(ctx: Context<'_>) -> Result<()> {
 
         let character = &characters[current_page];
         let name = character.to_string();
-        let greeting = character.greeting.to_string();
-        let description = character.description.to_string();
+        let greeting = &character.greeting.message;
+        let description = &character.description.message;
         let avatar = character.avatar.to_string();
 
         let embed = CreateEmbed::default()

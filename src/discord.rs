@@ -1,7 +1,7 @@
-#![allow(clippy::unreadable_literal)]
 use crate::commands::{answer_as::svara_som, chat::prata, gubbar::gubbar, gubbe::gubbe};
 use crate::event_handler::Handler;
 use crate::prelude::*;
+use crate::statistics::Statistics;
 use async_openai::{Client, config::OpenAIConfig};
 use dashmap::DashMap;
 use miette::Diagnostic;
@@ -17,6 +17,7 @@ use ron::ser::PrettyConfig;
 use snafu::{ResultExt, Snafu};
 use std::fs::{read, write};
 use std::sync::Arc;
+use tracing::error;
 
 const GATEWAY_INTENTS: GatewayIntents =
     GatewayIntents::non_privileged().union(GatewayIntents::MESSAGE_CONTENT);
@@ -63,7 +64,7 @@ impl Data {
     }
 
     pub fn load() -> Self {
-        let characters = read("characters.ron").map_or_else(
+        let characters: DashMap<String, Character> = read("characters.ron").map_or_else(
             |_| DashMap::new(),
             |bytes| ron::de::from_bytes(&bytes).expect("valid characters file"),
         );
@@ -75,6 +76,15 @@ impl Data {
             .with_api_key(CONFIG.openai_key())
             .with_api_base(CONFIG.openai_url());
         let ai = Client::with_config(config);
+
+        let statistics = Statistics::from(&chats);
+        for mut character in characters.iter_mut() {
+            let name = character.key();
+            if let Some(statistic) = statistics.characters.get(name) {
+                character.times_spawned = statistic.times_spawned;
+            }
+        }
+
         Self {
             characters,
             chats,
@@ -100,13 +110,7 @@ impl Data {
 }
 
 async fn start_bot(data: Data) -> Result<()> {
-    let bot_token = CONFIG.bot_token().0.parse().unwrap_or_else(|_| {
-        panic!(
-            "bot token {} BLESS YOU {:?}",
-            CONFIG.bot_token().as_str(),
-            CONFIG
-        )
-    });
+    let bot_token = CONFIG.bot_token().parse()?;
 
     let bot_commands = vec![prata(), gubbe(), gubbar(), svara_som(), register()];
 
@@ -155,13 +159,17 @@ async fn register(ctx: Context<'_>) -> Result<()> {
 async fn error_handler(error: FrameworkError<'_>) {
     match error {
         poise::FrameworkError::Command { error, ctx, .. } => {
+            let log_channel = CONFIG.log_channel();
             let command_name = &ctx.command().name;
             let error_message = format!("error in command: `{command_name}`: {error:?}");
+            if let Err(why) = log_channel.say(ctx.http(), &error_message).await {
+                error!("Error sending error message: {why}");
+            }
             ctx.reply(error_message).await.expect("a");
         }
-        error => {
-            if let Err(error) = poise::builtins::on_error(error).await {
-                tracing::error!("Error while handling error: {error}");
+        other => {
+            if let Err(why) = poise::builtins::on_error(other).await {
+                error!("Error while handling error: {why}");
             }
         }
     }
@@ -171,9 +179,11 @@ pub async fn autocomplete_character_name<'a>(
     ctx: Context<'_>,
     partial: &'a str,
 ) -> CreateAutocompleteResponse<'a> {
-    let character_names = ctx
-        .data()
-        .characters()
+    let mut characters = ctx.data().characters();
+    characters.sort_unstable();
+    characters.reverse();
+
+    let character_names = characters
         .into_iter()
         .filter(|character| {
             character

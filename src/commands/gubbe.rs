@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use miette::Diagnostic;
-use poise::{CreateReply, Modal, execute_modal_on_component_interaction};
+use poise::{
+    CreateReply, Modal, execute_modal_on_component_interaction, serenity_prelude::CreateEmbedFooter,
+};
 use serenity::{
     ComponentInteractionCollector, CreateActionRow, CreateButton, CreateEmbed, ReactionType,
 };
@@ -72,15 +74,17 @@ async fn visa(
 
     let reply = {
         let character_name = character.to_string();
-        let greeting = character.greeting.to_string();
-        let description = character.description.to_string();
+        let greeting = character.greeting.message;
+        let description = character.description.message;
         let avatar = character.avatar.to_string();
+        let footer = CreateEmbedFooter::new(format!("{} konversationer", character.times_spawned));
 
         let embed = CreateEmbed::default()
             .title(character_name)
             .description(description)
             .field("Hälsning", greeting, false)
-            .thumbnail(avatar);
+            .thumbnail(avatar)
+            .footer(footer);
 
         CreateReply::default().embed(embed)
     };
