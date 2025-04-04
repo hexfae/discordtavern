@@ -11,20 +11,31 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub type Context<'a> = poise::Context<'a, crate::discord::Data, Error>;
 pub type FrameworkError<'a> = poise::FrameworkError<'a, crate::discord::Data, Error>;
 
-use itertools::Itertools;
-use strsim::levenshtein;
+use strsim::normalized_damerau_levenshtein;
+
+#[derive(Debug, snafu::Snafu)]
+pub enum DiscordError {
+    #[snafu(whatever, display("{message}"))]
+    Whatever {
+        message: String,
+        #[snafu(source(from(Box<dyn std::error::Error+ Send + Sync>, Some)))]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+}
 
 pub fn most_similar_name_to(input: impl AsRef<str>, ctx: Context<'_>) -> Option<String> {
     ctx.data()
         .characters()
         .into_iter()
         .map(|character| character.name.to_string())
-        .map(|character_name| (levenshtein(input.as_ref(), &character_name), character_name))
-        .sorted()
+        .map(|character_name| {
+            (
+                normalized_damerau_levenshtein(input.as_ref(), &character_name),
+                character_name,
+            )
+        })
+        .max_by(|(a, _), (b, _)| f64::total_cmp(a, b))
         .map(|(_, character_name)| character_name)
-        .collect_vec()
-        .first()
-        .cloned()
 }
 
 pub fn substitute_name(input: impl AsRef<str>) -> String {
