@@ -314,23 +314,51 @@ pub async fn svara_som(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
                 continue;
             };
 
-            history.update_choice(&modal.message, current_page);
-            data.insert_history(history.clone());
+            if let Some(content) = modal.message {
+                history.update_choice(&content, current_page);
+                data.insert_history(history.clone());
 
-            let footer = format!(
-                "{}/{} | tog {}s | {}/4096 (redigerad)",
-                current_page + 1,
-                history.choices.len(),
-                &history.seconds_taken[current_page],
-                modal.message.len(),
-            );
+                let footer = format!(
+                    "{}/{} | tog {}s | {}/4096 (redigerad)",
+                    current_page + 1,
+                    history.choices.len(),
+                    &history.seconds_taken[current_page],
+                    content.len(),
+                );
 
-            let history = history.clone();
-            let name = history.character.to_string();
-            let description = history.choices[current_page].message.to_string();
-            let thumbnail = history.character.avatar.to_string();
-            message
-                .edit(
+                let history = history.clone();
+                let name = history.character.to_string();
+                let description = history.choices[current_page].message.to_string();
+                let thumbnail = history.character.avatar.to_string();
+                message
+                    .edit(
+                        &http,
+                        EditMessage::new()
+                            .embed(
+                                serenity::CreateEmbed::new()
+                                    .title(name)
+                                    .description(description)
+                                    .thumbnail(thumbnail)
+                                    .footer(serenity::CreateEmbedFooter::new(footer)),
+                            )
+                            .components(enabled_buttons.clone()),
+                    )
+                    .await
+                    .context(EditMessageSnafu)?;
+            } else {
+                let description = history.choices[current_page].message.to_string();
+                let footer = format!(
+                    "{}/{} | tog {}s | {}/4096 (redigerad)",
+                    current_page + 1,
+                    history.choices.len(),
+                    &history.seconds_taken[current_page],
+                    description.len(),
+                );
+
+                let history = history.clone();
+                let name = history.character.to_string();
+                let thumbnail = history.character.avatar.to_string();
+                message.edit(
                     &http,
                     EditMessage::new()
                         .embed(
@@ -341,9 +369,8 @@ pub async fn svara_som(ctx: Context<'_>, msg: serenity::Message) -> Result<()> {
                                 .footer(serenity::CreateEmbedFooter::new(footer)),
                         )
                         .components(enabled_buttons.clone()),
-                )
-                .await
-                .context(EditMessageSnafu)?;
+                ).await.context(EditMessageSnafu)?;
+            }
         } else if interaction.data.custom_id == prev_button_id {
             interaction.defer(http).await.context(DeferSnafu)?;
             current_page = current_page
@@ -585,8 +612,8 @@ fn create_request(history: History) -> Result<CreateChatCompletionRequest, Answe
         .model(CONFIG.openai_model())
         .max_tokens(2048_u16)
         .temperature(1.3)
-        .frequency_penalty(0.5)
-        .presence_penalty(0.5)
+        // .frequency_penalty(0.5)
+        // .presence_penalty(0.5)
         .messages(history)
         .build()
         .context(OpenAiRequestSnafu)

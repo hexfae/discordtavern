@@ -30,7 +30,7 @@ pub async fn event_handler(
     let super_message = SuperMessage::from(new_message.clone());
 
     history.push_message(history.choices[history.current_page].clone());
-    let log_message = log_user_response(http, &new_message, &super_message, &history).await?;
+    // let log_message = log_user_response(http, &new_message, &super_message, &history).await?;
     history.push_message(super_message);
 
     let (prev_button_id, next_button_id, pin_button_id, edit_button_id) =
@@ -53,14 +53,14 @@ pub async fn event_handler(
     )
     .await?;
 
-    log_bot_response(
-        http,
-        log_message,
-        &history.character,
-        &super_message,
-        elapsed,
-    )
-    .await?;
+    // log_bot_response(
+    //     http,
+    //     log_message,
+    //     &history.character,
+    //     &super_message,
+    //     elapsed,
+    // )
+    // .await?;
     history.reset_choices();
     history.update(super_message.clone(), message.id, elapsed);
     data.insert_history(history.clone());
@@ -158,36 +158,66 @@ pub async fn event_handler(
                 continue;
             };
 
-            history.update_choice(&modal.message, current_page);
-            data.insert_history(history.clone());
+            if let Some(content) = modal.message {
+                history.update_choice(&content, current_page);
+                data.insert_history(history.clone());
 
-            let footer = format!(
-                "{}/{} | tog {}s | {}/4096 (redigerad)",
-                current_page + 1,
-                history.choices.len(),
-                &history.seconds_taken[current_page],
-                modal.message.len(),
-            );
+                let footer = format!(
+                    "{}/{} | tog {}s | {}/4096 (redigerad)",
+                    current_page + 1,
+                    history.choices.len(),
+                    &history.seconds_taken[current_page],
+                    content.len(),
+                );
 
-            let history = history.clone();
-            let name = history.character.to_string();
-            let description = history.choices[current_page].message.to_string();
-            let thumbnail = history.character.avatar.to_string();
-            message
-                .edit(
-                    &http,
-                    EditMessage::new()
-                        .embed(
-                            serenity::CreateEmbed::new()
-                                .title(name)
-                                .description(description)
-                                .thumbnail(thumbnail)
-                                .footer(serenity::CreateEmbedFooter::new(footer)),
-                        )
-                        .components(enabled_buttons.clone()),
-                )
-                .await
-                .context(EditMessageSnafu)?;
+                let history = history.clone();
+                let name = history.character.to_string();
+                let description = history.choices[current_page].message.to_string();
+                let thumbnail = history.character.avatar.to_string();
+                message
+                    .edit(
+                        &http,
+                        EditMessage::new()
+                            .embed(
+                                serenity::CreateEmbed::new()
+                                    .title(name)
+                                    .description(description)
+                                    .thumbnail(thumbnail)
+                                    .footer(serenity::CreateEmbedFooter::new(footer)),
+                            )
+                            .components(enabled_buttons.clone()),
+                    )
+                    .await
+                    .context(EditMessageSnafu)?;
+            } else {
+                let description = history.choices[current_page].message.to_string();
+                let footer = format!(
+                    "{}/{} | tog {}s | {}/4096 (redigerad)",
+                    current_page + 1,
+                    history.choices.len(),
+                    &history.seconds_taken[current_page],
+                    description.len(),
+                );
+
+                let history = history.clone();
+                let name = history.character.to_string();
+                let thumbnail = history.character.avatar.to_string();
+                message
+                    .edit(
+                        &http,
+                        EditMessage::new()
+                            .embed(
+                                serenity::CreateEmbed::new()
+                                    .title(name)
+                                    .description(description)
+                                    .thumbnail(thumbnail)
+                                    .footer(serenity::CreateEmbedFooter::new(footer)),
+                            )
+                            .components(enabled_buttons.clone()),
+                    )
+                    .await
+                    .context(EditMessageSnafu)?;
+            }
         } else if interaction.data.custom_id == prev_button_id {
             interaction.defer(http).await.context(DeferSnafu)?;
             current_page = current_page
@@ -411,7 +441,7 @@ impl EventHandler for Handler {
 pub struct EditMessageModal {
     #[name = "Innehåll"]
     #[placeholder = "Meddelandets innehåll…"]
-    pub message: String,
+    pub message: Option<String>,
 }
 
 async fn finish_response_edit_message(
@@ -573,8 +603,8 @@ fn create_request(history: History) -> Result<CreateChatCompletionRequest, Event
         .model(CONFIG.openai_model())
         .max_tokens(2048_u16)
         .temperature(1.3)
-        .frequency_penalty(0.5)
-        .presence_penalty(0.5)
+        // .frequency_penalty(0.5)
+        // .presence_penalty(0.5)
         .messages(history)
         .build()
         .context(OpenAiRequestSnafu)
