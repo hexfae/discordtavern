@@ -80,20 +80,22 @@ pub async fn prata(
     let ctx_id = ctx.id();
     let character_name = character.to_string();
     let avatar = character.avatar.to_string();
-    let components = vec![CreateActionRow::Buttons(
-        vec![
-            CreateButton::new(format!("{ctx_id}edit"))
-                .emoji(ReactionType::try_from("✏️".to_string()).expect("valid emoji")),
-        ]
-        .into(),
-    )];
+    // let components = vec![CreateActionRow::Buttons(
+    //     vec![
+    //         CreateButton::new(format!("{ctx_id}edit"))
+    //             .emoji(ReactionType::try_from("✏️".to_string()).expect("valid emoji")),
+    //     ]
+    //     .into(),
+    // )];
 
     let sent_message = {
         let embed = serenity::CreateEmbed::new()
             .title(&character_name)
             .description(character.greeting.message.clone())
             .thumbnail(&avatar);
-        ctx.send(CreateReply::default().embed(embed).components(&components))
+        ctx.send(CreateReply::default().embed(embed)
+        // .components(&components)
+        )
             .await
             .context(SendMessageSnafu {
                 message: character.greeting.message.clone(),
@@ -103,31 +105,31 @@ pub async fn prata(
     let history = character.into_history(sent_message.message().await.context(GetMessageSnafu)?.id);
     ctx.data().insert_history(history);
 
-    while let Some(interaction) = ComponentInteractionCollector::new(ctx.serenity_context())
-        .filter(move |interaction| interaction.data.custom_id.starts_with(&ctx_id.to_string()))
-        .timeout(std::time::Duration::from_secs(60 * 60 * 24))
-        .await
-    {
-        if let Some(modal) = execute_modal_on_component_interaction::<EditMessageModal>(
-            ctx.serenity_context(),
-            interaction,
-            None,
-            None,
-        )
-        .await
-        .context(ModalSnafu)?
-        {
-            let message = modal.message;
-            let embed = CreateEmbed::new()
-                .title(&character_name)
-                .description(message.clone())
-                .thumbnail(&avatar);
-            let edit_message = CreateReply::new().embed(embed).components(&components);
-            sent_message
-                .edit(ctx, edit_message)
-                .await
-                .context(EditMessageSnafu { message })?;
-        }
-    }
+    // while let Some(interaction) = ComponentInteractionCollector::new(ctx.serenity_context())
+    //     .filter(move |interaction| interaction.data.custom_id.starts_with(&ctx_id.to_string()))
+    //     .timeout(std::time::Duration::from_secs(60 * 60 * 24))
+    //     .await
+    // {
+    //     if let Some(modal) = execute_modal_on_component_interaction::<EditMessageModal>(
+    //         ctx.serenity_context(),
+    //         interaction,
+    //         None,
+    //         None,
+    //     )
+    //     .await
+    //     .context(ModalSnafu)?
+    //     {
+    //         let message = modal.message;
+    //         let embed = CreateEmbed::new()
+    //             .title(&character_name)
+    //             .description(message.clone())
+    //             .thumbnail(&avatar);
+    //         let edit_message = CreateReply::new().embed(embed).components(&components);
+    //         sent_message
+    //             .edit(ctx, edit_message)
+    //             .await
+    //             .context(EditMessageSnafu { message })?;
+    //     }
+    // }
     Ok(())
 }
