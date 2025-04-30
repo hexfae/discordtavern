@@ -32,7 +32,7 @@ enum TalkError {
 }
 
 #[poise::command(slash_command, prefix_command)]
-pub async fn prata(
+pub async fn hälsa(
     ctx: Context<'_>,
     #[description = "Gubbens namn"]
     #[autocomplete = "autocomplete_character_name"]
@@ -59,6 +59,7 @@ pub async fn prata(
     let sent_message = {
         let embed = serenity::CreateEmbed::new()
             .title(&character_name)
+            .description(character.greeting.message.clone())
             .thumbnail(&avatar);
         ctx.send(CreateReply::default().embed(embed))
             .await
@@ -68,7 +69,7 @@ pub async fn prata(
     };
 
     let history = character
-        .into_history_without_greeting(sent_message.message().await.context(GetMessageSnafu)?.id);
+        .into_history_with_greeting(sent_message.message().await.context(GetMessageSnafu)?.id);
     ctx.data().insert_history(history);
     Ok(())
 }
